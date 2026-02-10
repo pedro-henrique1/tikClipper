@@ -1,25 +1,23 @@
-import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
-import path from 'path';
+import ffmpeg from 'fluent-ffmpeg';
 import { mkdir } from 'fs/promises';
+import path from 'path';
 import type { Clip, ExportConfig } from '../types/index.js';
 
 ffmpeg.setFfmpegPath(ffmpegStatic ?? '');
 
 export class VideoService {
-  /**
-   * Extrai um trecho do vídeo e converte para 9:16
-   */
   async extractClip(
     inputPath: string,
     outputPath: string,
     clip: Clip,
-    config: ExportConfig
+    config: ExportConfig,
+    subtitlesPath?: string
   ): Promise<string> {
     await mkdir(path.dirname(outputPath), { recursive: true });
 
     return new Promise((resolve, reject) => {
-      ffmpeg(inputPath)
+      let command = ffmpeg(inputPath)
         .setStartTime(clip.startTime)
         .setDuration(clip.endTime - clip.startTime)
         .outputOptions([
@@ -30,7 +28,14 @@ export class VideoService {
           '-b:a 128k',
         ])
         .size(`${config.width}x${config.height}`)
-        .autopad()
+        .autopad();
+
+      if (subtitlesPath) {
+        const escaped = subtitlesPath.replace(/'/g, "\\'");
+        command = command.videoFilter(`subtitles='${escaped}'`);
+      }
+
+      command
         .output(outputPath)
         .on('end', () => resolve(outputPath))
         .on('error', reject)
@@ -38,9 +43,23 @@ export class VideoService {
     });
   }
 
-  /**
-   * Retorna metadados do vídeo (duração, resolução, etc.)
-   */
+  async extractAudioToWav(inputPath: string, outputPath: string): Promise<string> {
+    await mkdir(path.dirname(outputPath), { recursive: true });
+
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .noVideo()
+        .audioCodec('pcm_s16le')
+        .audioFrequency(16000)
+        .audioChannels(1)
+        .output(outputPath)
+        .on('end', () => resolve(outputPath))
+        .on('error', reject)
+        .run();
+    });
+  }
+
+
   async getMetadata(inputPath: string): Promise<{
     duration: number;
     width: number;

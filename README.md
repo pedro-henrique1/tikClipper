@@ -12,6 +12,13 @@ Cortes automáticos de vídeos longos (podcast, live, gameplay) para TikTok, Sho
 
 - **Node.js** 18+
 - **FFmpeg** (instalado no sistema ou via `ffmpeg-static`)
+- **whisper.cpp** para transcrição (local, gratuito):
+  ```bash
+  git clone https://github.com/ggerganov/whisper.cpp
+  cd whisper.cpp && make
+  ./models/download-ggml-model.sh base
+  ```
+  Defina `WHISPER_CPP_PATH` se estiver em outro diretório (padrão: `../whisper.cpp`).
 
 ## Instalação
 
@@ -51,7 +58,7 @@ src/
 
 ## Próximos passos
 
-- [ ] Integrar **Whisper** para transcrição
+- [x] Integrar **whisper.cpp** para transcrição
 - [ ] Scoring com **IA** (GPT/embedding) para detectar melhores momentos
 - [ ] Fila com **BullMQ** para processamento em background
 - [ ] API REST ou interface web
