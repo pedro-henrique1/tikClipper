@@ -32,7 +32,9 @@ export class VideoService {
 
       if (subtitlesPath) {
         const escaped = subtitlesPath.replace(/'/g, "\\'");
-        command = command.videoFilter(`subtitles='${escaped}'`);
+        const style =
+          "force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=20'";
+        command = command.videoFilter(`subtitles='${escaped}':${style}`);
       }
 
       command
