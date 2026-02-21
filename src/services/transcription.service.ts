@@ -17,7 +17,6 @@ const WHISPER_BINARY =
 const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "models/ggml-base.bin";
 
 function parseWhisperTime(time: string): number {
-    // Formato: HH:MM:SS.mmm
     const match = time.match(/(\d+):(\d+):(\d+)[.,](\d+)/);
     if (!match) return 0;
     const [, h, m, s, ms] = match;
@@ -32,10 +31,8 @@ export class TranscriptionService {
         const audioPath = path.join(tempDir, "audio.wav");
 
         try {
-            // 1. Extrair áudio do vídeo (16kHz mono para Whisper)
             await this.videoService.extractAudioToWav(inputPath, audioPath);
 
-            // 2. Transcrever com whisper.cpp
             const segments = await this.runWhisper(audioPath);
             return segments;
         } finally {
@@ -51,7 +48,7 @@ export class TranscriptionService {
         if (!existsSync(WHISPER_BINARY)) {
             console.warn(
                 `[Transcription] Binário whisper.cpp não encontrado em ${WHISPER_BINARY}. ` +
-                    "Defina WHISPER_CPP_PATH ou WHISPER_BINARY apontando para o executável (ex.: build/bin/whisper-cli)."
+                    "Defina WHISPER_CPP_PATH ou WHISPER_BINARY apontando para o executável (ex.: build/bin/whisper-cli).",
             );
             return [];
         }
@@ -59,7 +56,7 @@ export class TranscriptionService {
         if (!existsSync(modelPath)) {
             console.warn(
                 `[Transcription] Modelo não encontrado em ${modelPath}. ` +
-                    "Baixe com ./models/download-ggml-model.sh base"
+                    "Baixe com ./models/download-ggml-model.sh base",
             );
             return [];
         }
@@ -69,7 +66,7 @@ export class TranscriptionService {
                 const proc = spawn(
                     WHISPER_BINARY,
                     ["-m", modelPath, "-f", audioPath, "-l", "pt"],
-                    { cwd: WHISPER_CPP_PATH }
+                    { cwd: WHISPER_CPP_PATH },
                 );
 
                 let stdout = "";
@@ -81,7 +78,7 @@ export class TranscriptionService {
                 proc.on("close", (code) => {
                     if (code !== 0) {
                         reject(
-                            new Error(`whisper.cpp exit ${code}: ${stderr}`)
+                            new Error(`whisper.cpp exit ${code}: ${stderr}`),
                         );
                         return;
                     }
@@ -92,7 +89,7 @@ export class TranscriptionService {
 
                         for (const line of lines) {
                             const match = line.match(
-                                /\[(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)\]\s+(.*)/
+                                /\[(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)\]\s+(.*)/,
                             );
                             if (!match) continue;
 
@@ -109,13 +106,13 @@ export class TranscriptionService {
                         resolve(parsed);
                     } catch (err) {
                         reject(
-                            err instanceof Error ? err : new Error(String(err))
+                            err instanceof Error ? err : new Error(String(err)),
                         );
                     }
                 });
 
                 proc.on("error", reject);
-            }
+            },
         );
 
         return segments;

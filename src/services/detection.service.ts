@@ -1,5 +1,9 @@
 import { randomUUID } from "crypto";
-import type { Clip, TranscriptSegment } from "../types/index.js";
+import type {
+    Clip,
+    ScoringStrategy,
+    TranscriptSegment,
+} from "../types/index.js";
 
 interface DetectionConfig {
     minDuration: number;
@@ -7,53 +11,100 @@ interface DetectionConfig {
     targetClips: number;
 }
 
-/**
- * Detecta os melhores momentos do vídeo.
- * Usa transcrição + heurísticas; pode ser estendido com IA para scoring.
- */
 export class DetectionService {
-    /**
-     * Analisa segmentos e retorna os melhores momentos para cortar
-     */
+    constructor(private scoringStrategy?: ScoringStrategy) {}
+
     async detectClips(
         transcript: TranscriptSegment[],
         videoDuration: number,
-        config: DetectionConfig
+        config: DetectionConfig,
     ): Promise<Clip[]> {
-        // Estratégia simples: divide o vídeo em chunks de tamanho ideal
-        // TODO: Integrar scoring com IA (picos de emoção, palavras-chave, etc.)
-        const clipDuration = Math.min(
-            config.maxDuration,
-            Math.max(config.minDuration, videoDuration / config.targetClips)
+        const aiClips = await this.buildAiClips(
+            transcript,
+            videoDuration,
+            config,
         );
-        const clips: Clip[] = [];
-        let currentTime = 0;
 
-        while (
-            currentTime < videoDuration &&
-            clips.length < config.targetClips
-        ) {
-            const endTime = Math.min(currentTime + clipDuration, videoDuration);
-            const segment = transcript.find(
-                (s) => s.start >= currentTime && s.end <= endTime
-            );
+        return aiClips.slice(0, config.targetClips);
+    }
 
-            clips.push({
-                id: randomUUID(),
-                startTime: currentTime,
-                endTime,
-                score: segment ? 0.8 : 0.5,
-                reason: segment
-                    ? "Possível momento destacado"
-                    : "Segmento automático",
-                transcript: segment?.text,
-            });
-
-            currentTime = endTime;
+    private async buildAiClips(
+        transcript: TranscriptSegment[],
+        videoDuration: number,
+        config: DetectionConfig,
+    ): Promise<Clip[]> {
+        if (!this.scoringStrategy) {
+            return [];
         }
 
-        return clips
-            .sort((a, b) => b.score - a.score)
-            .slice(0, config.targetClips);
+        try {
+            const scored = await this.scoringStrategy.scoreSegments(transcript);
+
+            const valid = scored
+                .filter(
+                    (s) =>
+                        Number.isFinite(s.startTime) &&
+                        Number.isFinite(s.endTime) &&
+                        s.startTime >= 0 &&
+                        s.endTime > s.startTime &&
+                        s.endTime <= videoDuration,
+                )
+                .filter((s) => {
+                    const duration = s.endTime - s.startTime;
+                    const isValid =
+                        duration >= config.minDuration &&
+                        duration <= config.maxDuration;
+
+                    if (!isValid) {
+                        console.log(
+                            `[Detection] Segmento ignorado: duracao ${duration.toFixed(1)}s (esperado ${config.minDuration}-${config.maxDuration}s)`,
+                        );
+                    }
+
+                    return isValid;
+                })
+                .sort((a, b) => b.score - a.score);
+
+            console.log(
+                `[Detection] ${valid.length} segmento(s) valido(s) apos filtro (duracao ${config.minDuration}-${config.maxDuration}s).`,
+            );
+
+            return valid.map((s) => {
+                const transcriptText = this.buildTranscriptText(
+                    transcript,
+                    s.startTime,
+                    s.endTime,
+                );
+
+                return {
+                    id: randomUUID(),
+                    startTime: s.startTime,
+                    endTime: s.endTime,
+                    score: s.score,
+                    reason: s.reason,
+                    transcript: transcriptText,
+                };
+            });
+        } catch (error) {
+            console.warn(
+                "[Detection] Falha no scoring IA. Usando fallback.",
+                error,
+            );
+            return [];
+        }
+    }
+
+    private buildTranscriptText(
+        transcript: TranscriptSegment[],
+        startTime: number,
+        endTime: number,
+    ): string | undefined {
+        const text = transcript
+            .filter((s) => s.end >= startTime && s.start <= endTime)
+            .map((s) => s.text.trim())
+            .filter(Boolean)
+            .join(" ");
+
+        return text.length > 0 ? text : undefined;
     }
 }

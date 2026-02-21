@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import {
     DEFAULT_CLIP_CONFIG,
@@ -6,28 +7,41 @@ import {
 } from "../config/index.js";
 import { DetectionService } from "../services/detection.service.js";
 import { ExportService } from "../services/export.service.js";
+import { GeminiScoringStrategy } from "../services/geminiScoringStrategy.service.js";
+import { OpenRouterScoringStrategy } from "../services/openRouterScoringStrategy.service.js";
 import { TranscriptionService } from "../services/transcription.service.js";
 import { VideoService } from "../services/video.service.js";
 import type { PipelineConfig } from "../types/index.js";
 
-/**
- * Pipeline principal: vídeo → transcrição → detecção → exportação
- */
 export class Pipeline {
     private transcription = new TranscriptionService();
-    private detection = new DetectionService();
+    private detection: DetectionService;
     private export = new ExportService();
     private video = new VideoService();
 
+    constructor() {
+        const geminiKey = process.env.GEMINI_API_KEY;
+        const openRouterKey = process.env.OPEN_ROUTE;
+
+        let scoring;
+        if (openRouterKey) {
+            scoring = new OpenRouterScoringStrategy(openRouterKey);
+        } else if (geminiKey) {
+            scoring = new GeminiScoringStrategy(geminiKey);
+        }
+
+        this.detection = new DetectionService(scoring);
+    }
+
     async run(
         inputPath: string,
-        options?: Partial<PipelineConfig>
+        options?: Partial<PipelineConfig>,
     ): Promise<string[]> {
         const config: PipelineConfig = {
             inputPath,
             outputDir: path.join(
                 OUTPUT_DIR,
-                path.basename(inputPath, path.extname(inputPath))
+                path.basename(inputPath, path.extname(inputPath)),
             ),
             minClipDuration: DEFAULT_CLIP_CONFIG.minDuration,
             maxClipDuration: DEFAULT_CLIP_CONFIG.maxDuration,
@@ -36,13 +50,10 @@ export class Pipeline {
             ...options,
         };
 
-        // 1. Transcrição
         const transcript = await this.transcription.transcribe(inputPath);
 
-        // 2. Metadados do vídeo (para duração)
         const { duration } = await this.video.getMetadata(inputPath);
 
-        // 3. Detecção de momentos
         const clips = await this.detection.detectClips(transcript, duration, {
             minDuration: config.minClipDuration,
             maxDuration: config.maxClipDuration,
@@ -51,11 +62,14 @@ export class Pipeline {
 
         if (clips.length === 0) {
             throw new Error(
-                "Nenhum clip detectado. Verifique o vídeo de entrada."
+                "Nenhum clip detectado. Verifique o vídeo de entrada.",
             );
         }
 
-        // 4. Exportação (com legendas geradas a partir da transcrição)
+        await mkdir(config.outputDir, { recursive: true });
+        const clipsJsonPath = path.join(config.outputDir, "clips.json");
+        await writeFile(clipsJsonPath, JSON.stringify(clips, null, 2), "utf-8");
+
         return this.export.exportClips(inputPath, clips, transcript, config);
     }
 }
