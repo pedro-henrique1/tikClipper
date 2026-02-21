@@ -5,6 +5,7 @@ import type {
     ScoringStrategy,
     TranscriptSegment,
 } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
 export class OpenRouterScoringStrategy implements ScoringStrategy {
     private client: OpenAI;
@@ -98,7 +99,7 @@ ${transcriptText}`;
 
             return highlights as ScoredSegment[];
         } catch (error) {
-            console.error("Erro ao processar OpenRouter IA:", error);
+            logger.error({ err: error }, "Erro ao processar OpenRouter IA:");
             return [];
         }
     }

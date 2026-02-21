@@ -50,7 +50,10 @@ export class Pipeline {
             ...options,
         };
 
-        const transcript = await this.transcription.transcribe(inputPath);
+        const transcript = await this.transcription.transcribe(
+            inputPath,
+            config.karaoke,
+        );
 
         const { duration } = await this.video.getMetadata(inputPath);
 

@@ -5,6 +5,7 @@ import type {
     ScoringStrategy,
     TranscriptSegment,
 } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
 export class GeminiScoringStrategy implements ScoringStrategy {
     private ai: GoogleGenAI;
@@ -73,7 +74,7 @@ ${JSON.stringify(simplifiedTranscript)}
 
             return highlights;
         } catch (error) {
-            console.error("Erro ao processar IA:", error);
+            logger.error({ err: error }, "Erro ao processar IA:");
 
             return [];
         }

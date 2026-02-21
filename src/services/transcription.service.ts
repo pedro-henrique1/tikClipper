@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import type { TranscriptSegment } from "../types/index.js";
+import { logger } from "./logger.service.js";
 import { VideoService } from "./video.service.js";
 
 const WHISPER_CPP_PATH =
@@ -26,27 +27,33 @@ function parseWhisperTime(time: string): number {
 export class TranscriptionService {
     private videoService = new VideoService();
 
-    async transcribe(inputPath: string): Promise<TranscriptSegment[]> {
+    async transcribe(
+        inputPath: string,
+        wordTimestamps = false,
+    ): Promise<TranscriptSegment[]> {
         const tempDir = await mkdtemp(path.join(tmpdir(), "tikclipper-"));
         const audioPath = path.join(tempDir, "audio.wav");
 
         try {
             await this.videoService.extractAudioToWav(inputPath, audioPath);
 
-            const segments = await this.runWhisper(audioPath);
+            const segments = await this.runWhisper(audioPath, wordTimestamps);
             return segments;
         } finally {
             await rm(tempDir, { recursive: true, force: true });
         }
     }
 
-    private async runWhisper(audioPath: string): Promise<TranscriptSegment[]> {
+    private async runWhisper(
+        audioPath: string,
+        wordTimestamps = false,
+    ): Promise<TranscriptSegment[]> {
         const modelPath = path.isAbsolute(WHISPER_MODEL)
             ? WHISPER_MODEL
             : path.join(WHISPER_CPP_PATH, WHISPER_MODEL);
 
         if (!existsSync(WHISPER_BINARY)) {
-            console.warn(
+            logger.warn(
                 `[Transcription] Binário whisper.cpp não encontrado em ${WHISPER_BINARY}. ` +
                     "Defina WHISPER_CPP_PATH ou WHISPER_BINARY apontando para o executável (ex.: build/bin/whisper-cli).",
             );
@@ -54,20 +61,24 @@ export class TranscriptionService {
         }
 
         if (!existsSync(modelPath)) {
-            console.warn(
+            logger.warn(
                 `[Transcription] Modelo não encontrado em ${modelPath}. ` +
                     "Baixe com ./models/download-ggml-model.sh base",
             );
             return [];
         }
 
+        const args = ["-m", modelPath, "-f", audioPath, "-l", "pt"];
+        if (wordTimestamps) {
+            // -ml 1 forces one word per line (mostly) which makes parsing word timestamps easier
+            args.push("-ml", "1");
+        }
+
         const segments = await new Promise<TranscriptSegment[]>(
             (resolve, reject) => {
-                const proc = spawn(
-                    WHISPER_BINARY,
-                    ["-m", modelPath, "-f", audioPath, "-l", "pt"],
-                    { cwd: WHISPER_CPP_PATH },
-                );
+                const proc = spawn(WHISPER_BINARY, args, {
+                    cwd: WHISPER_CPP_PATH,
+                });
 
                 let stdout = "";
                 let stderr = "";
@@ -87,6 +98,13 @@ export class TranscriptionService {
                         const lines = stdout.split(/\r?\n/);
                         const parsed: TranscriptSegment[] = [];
 
+                        // Temporary words for current segment being built
+                        let currentWords: {
+                            word: string;
+                            start: number;
+                            end: number;
+                        }[] = [];
+
                         for (const line of lines) {
                             const match = line.match(
                                 /\[(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)\]\s+(.*)/,
@@ -100,7 +118,39 @@ export class TranscriptionService {
                             const start = parseWhisperTime(startStr);
                             const end = parseWhisperTime(endStr);
 
-                            parsed.push({ start, end, text });
+                            if (wordTimestamps) {
+                                currentWords.push({ word: text, start, end });
+
+                                // Group words into segments of ~6 words for readability
+                                if (
+                                    currentWords.length >= 6 ||
+                                    text.match(/[.!?]$/)
+                                ) {
+                                    parsed.push({
+                                        start: currentWords[0].start,
+                                        end: currentWords[
+                                            currentWords.length - 1
+                                        ].end,
+                                        text: currentWords
+                                            .map((w) => w.word)
+                                            .join(" "),
+                                        words: [...currentWords],
+                                    });
+                                    currentWords = [];
+                                }
+                            } else {
+                                parsed.push({ start, end, text });
+                            }
+                        }
+
+                        // Push remaining words if any
+                        if (currentWords.length > 0) {
+                            parsed.push({
+                                start: currentWords[0].start,
+                                end: currentWords[currentWords.length - 1].end,
+                                text: currentWords.map((w) => w.word).join(" "),
+                                words: [...currentWords],
+                            });
                         }
 
                         resolve(parsed);
