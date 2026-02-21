@@ -1,9 +1,11 @@
 import { randomUUID } from "crypto";
 import type {
     Clip,
+    ScoredSegment,
     ScoringStrategy,
     TranscriptSegment,
 } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
 interface DetectionConfig {
     minDuration: number;
@@ -37,10 +39,44 @@ export class DetectionService {
             return [];
         }
 
-        try {
-            const scored = await this.scoringStrategy.scoreSegments(transcript);
+        const WINDOW_SIZE = 420; // 7 minutes
+        const OVERLAP = 60; // 1 minute
+        const STEP = WINDOW_SIZE - OVERLAP;
 
-            const valid = scored
+        const allScored: ScoredSegment[] = [];
+
+        try {
+            // If video is short, just process once
+            if (videoDuration <= WINDOW_SIZE + OVERLAP) {
+                const scored =
+                    await this.scoringStrategy.scoreSegments(transcript);
+                allScored.push(...scored);
+            } else {
+                // Windowing loop
+                for (let start = 0; start < videoDuration; start += STEP) {
+                    const end = Math.min(start + WINDOW_SIZE, videoDuration);
+                    console.log(
+                        `[Detection] Analisando bloco: ${start}s - ${end}s`,
+                    );
+
+                    const windowTranscript = transcript.filter(
+                        (s) => s.end > start && s.start < end,
+                    );
+
+                    if (windowTranscript.length === 0) continue;
+
+                    const scored =
+                        await this.scoringStrategy.scoreSegments(
+                            windowTranscript,
+                        );
+                    allScored.push(...scored);
+
+                    if (end >= videoDuration) break;
+                }
+            }
+
+            // Filter and Deduplicate
+            const valid = allScored
                 .filter(
                     (s) =>
                         Number.isFinite(s.startTime) &&
@@ -51,25 +87,30 @@ export class DetectionService {
                 )
                 .filter((s) => {
                     const duration = s.endTime - s.startTime;
-                    const isValid =
+                    return (
                         duration >= config.minDuration &&
-                        duration <= config.maxDuration;
+                        duration <= config.maxDuration
+                    );
+                });
 
-                    if (!isValid) {
-                        console.log(
-                            `[Detection] Segmento ignorado: duracao ${duration.toFixed(1)}s (esperado ${config.minDuration}-${config.maxDuration}s)`,
-                        );
-                    }
+            // Deduplicate: remove segments starting within 5s of each other (keep highest score)
+            const deduplicated: ScoredSegment[] = [];
+            valid.sort((a, b) => b.score - a.score);
 
-                    return isValid;
-                })
-                .sort((a, b) => b.score - a.score);
+            for (const segment of valid) {
+                const isDuplicate = deduplicated.some(
+                    (d) => Math.abs(d.startTime - segment.startTime) < 5,
+                );
+                if (!isDuplicate) {
+                    deduplicated.push(segment);
+                }
+            }
 
-            console.log(
-                `[Detection] ${valid.length} segmento(s) valido(s) apos filtro (duracao ${config.minDuration}-${config.maxDuration}s).`,
+            logger.info(
+                `[Detection] ${deduplicated.length} segmento(s) único(s) encontrado(s).`,
             );
 
-            return valid.map((s) => {
+            return deduplicated.map((s) => {
                 const transcriptText = this.buildTranscriptText(
                     transcript,
                     s.startTime,
@@ -86,9 +127,9 @@ export class DetectionService {
                 };
             });
         } catch (error) {
-            console.warn(
+            logger.warn(
+                { err: error },
                 "[Detection] Falha no scoring IA. Usando fallback.",
-                error,
             );
             return [];
         }

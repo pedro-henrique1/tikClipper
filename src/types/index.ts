@@ -7,10 +7,17 @@ export interface Clip {
     transcript?: string;
 }
 
+export interface Word {
+    word: string;
+    start: number;
+    end: number;
+}
+
 export interface TranscriptSegment {
     start: number;
     end: number;
     text: string;
+    words?: Word[];
 }
 
 export interface ScoredSegment {
@@ -35,6 +42,7 @@ export interface PipelineConfig {
     maxClipDuration: number;
     targetClips: number;
     exportConfig: ExportConfig;
+    karaoke?: boolean;
 }
 
 export type JobStatus = "pending" | "processing" | "completed" | "failed";

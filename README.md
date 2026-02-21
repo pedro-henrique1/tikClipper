@@ -70,7 +70,7 @@ src/
 
 - [x] Integrar **whisper.cpp** para transcrição
 - [x] Scoring com **IA** (GPT/embedding) para detectar melhores momentos
-- [ ] **Legendas karaoke** (word-by-word) – legenda que acompanha palavra por palavra o que a pessoa fala
+- [x] **Legendas karaoke** (word-by-word) – legenda que acompanha palavra por palavra o que a pessoa fala
 - [ ] Fila com **BullMQ** para processamento em background
 - [ ] API REST ou interface web
 - [ ] Suporte a múltiplas fontes (URL, YouTube, etc.)
