@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync } from 'fs';
+import "dotenv/config";
+import { existsSync } from "fs";
 import path from 'path';
 import chalk from 'chalk';
 import { Pipeline } from './pipeline/index.js';

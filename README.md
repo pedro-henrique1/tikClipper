@@ -34,6 +34,16 @@ npm install
 npm run cli -- ./caminho/para/video.mp4
 ```
 
+### IA (melhores cortes)
+
+Para ativar o scoring com IA (Gemini), defina a variável de ambiente:
+
+```bash
+export GEMINI_API_KEY="sua_chave_aqui"
+```
+
+Com isso, o pipeline vai priorizar os trechos sugeridos pela IA e usar fallback automático caso não haja retorno.
+
 ### Programático
 
 ```typescript
