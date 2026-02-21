@@ -29,28 +29,45 @@ export class OpenRouterScoringStrategy implements ScoringStrategy {
             e: t.end,
             t: t.text,
         }));
-
+        const transcriptText = transcript
+            .map(
+                (t) =>
+                    `[${t.start.toFixed(2)} - ${t.end.toFixed(2)}] ${t.text}`,
+            )
+            .join("\n");
         const prompt = `
-Você é um editor de vídeo especialista em criar cortes virais para TikTok e Reels.
+Você é especialista em retenção extrema para vídeos curtos.
 
-Analise a seguinte transcrição.
+OBJETIVO:
+Selecionar os 3 melhores trechos que:
+- Funcionem isoladamente
+- Comecem com frase impactante
+- Tenham conflito, surpresa ou opinião forte
+- Não dependam de contexto anterior
+- Não comecem com "então", "tipo", "como eu estava dizendo"
 
-Identifique de 3 a 5 momentos com alto potencial de engajamento.
+PROCESSO:
+1. Analise o fluxo emocional.
+2. Identifique pontos de pico emocional.
+3. Agrupe segmentos consecutivos até atingir entre 45 e 90 segundos.
+4. Ajuste o início para começar na frase mais forte possível.
+5. Nunca corte no meio de raciocínio.
 
-Critérios:
-- Humor
-- Polêmica
-- Lição forte
-- Curiosidade
+RETORNE APENAS:
 
-REGRAS:
-- Clipes entre 0 e 90 segundos
-- Use timestamps exatos
-- Retorne APENAS JSON válido com a estrutura: { "segments": [ { "startTime": number, "endTime": number, "score": number, "reason": "string" } ] }
+{
+  "segments": [
+    {
+      "startTime": number,
+      "endTime": number,
+      "score": number,
+      "reason": "Por que isso viraliza?"
+    }
+  ]
+}
 
 Transcrição:
-${JSON.stringify(simplifiedTranscript)}
-`;
+${transcriptText}`;
 
         try {
             const response = await this.client.chat.completions.create({
@@ -64,7 +81,7 @@ ${JSON.stringify(simplifiedTranscript)}
                     { role: "user", content: prompt },
                 ],
                 response_format: { type: "json_object" },
-                temperature: 0.2,
+                temperature: 0.1,
                 max_tokens: 600,
             });
 

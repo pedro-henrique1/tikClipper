@@ -7,9 +7,9 @@ export const DEFAULT_EXPORT_CONFIG = {
 };
 
 export const DEFAULT_CLIP_CONFIG = {
-    minDuration: 0,
+    minDuration: 45,
     maxDuration: 90,
-    targetClips: 5,
+    targetClips: 3,
 };
 
 export const OUTPUT_DIR = process.env.OUTPUT_DIR ?? "./output";

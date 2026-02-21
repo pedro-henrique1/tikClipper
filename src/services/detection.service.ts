@@ -34,15 +34,11 @@ export class DetectionService {
         config: DetectionConfig,
     ): Promise<Clip[]> {
         if (!this.scoringStrategy) {
-            console.warn("[Detection] IA desativada (GEMINI_API_KEY ausente).");
             return [];
         }
 
         try {
             const scored = await this.scoringStrategy.scoreSegments(transcript);
-            console.log(
-                `[Detection] IA retornou ${scored.length} segmento(s).`,
-            );
 
             const valid = scored
                 .filter(

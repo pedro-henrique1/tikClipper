@@ -13,12 +13,12 @@ Cortes automáticos de vídeos longos (podcast, live, gameplay) para TikTok, Sho
 - **Node.js** 18+
 - **FFmpeg** (instalado no sistema ou via `ffmpeg-static`)
 - **whisper.cpp** para transcrição (local, gratuito):
-  ```bash
-  git clone https://github.com/ggerganov/whisper.cpp
-  cd whisper.cpp && make
-  ./models/download-ggml-model.sh base
-  ```
-  Defina `WHISPER_CPP_PATH` se estiver em outro diretório (padrão: `../whisper.cpp`).
+    ```bash
+    git clone https://github.com/ggerganov/whisper.cpp
+    cd whisper.cpp && make
+    ./models/download-ggml-model.sh base
+    ```
+    Defina `WHISPER_CPP_PATH` se estiver em outro diretório (padrão: `../whisper.cpp`).
 
 ## Instalação
 
@@ -47,11 +47,11 @@ Com isso, o pipeline vai priorizar os trechos sugeridos pela IA e usar fallback 
 ### Programático
 
 ```typescript
-import { Pipeline } from 'tikclipper';
+import { Pipeline } from "tikclipper";
 
 const pipeline = new Pipeline();
-const outputPaths = await pipeline.run('./meu-podcast.mp4');
-console.log('Clips exportados:', outputPaths);
+const outputPaths = await pipeline.run("./meu-podcast.mp4");
+console.log("Clips exportados:", outputPaths);
 ```
 
 ## Estrutura do Projeto
@@ -69,8 +69,8 @@ src/
 ## Próximos passos
 
 - [x] Integrar **whisper.cpp** para transcrição
+- [x] Scoring com **IA** (GPT/embedding) para detectar melhores momentos
 - [ ] **Legendas karaoke** (word-by-word) – legenda que acompanha palavra por palavra o que a pessoa fala
-- [ ] Scoring com **IA** (GPT/embedding) para detectar melhores momentos
 - [ ] Fila com **BullMQ** para processamento em background
 - [ ] API REST ou interface web
 - [ ] Suporte a múltiplas fontes (URL, YouTube, etc.)
