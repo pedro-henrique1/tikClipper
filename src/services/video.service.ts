@@ -17,15 +17,18 @@ export class VideoService {
         await mkdir(path.dirname(outputPath), { recursive: true });
 
         return new Promise((resolve, reject) => {
-            let command = ffmpeg(inputPath)
+            const duration = clip.endTime - clip.startTime;
+            let command = ffmpeg()
+                .input(inputPath)
                 .setStartTime(clip.startTime)
-                .setDuration(clip.endTime - clip.startTime)
+                .setDuration(duration)
                 .outputOptions([
                     "-c:v libx264",
-                    "-preset fast",
+                    "-preset ultrafast",
                     "-crf 23",
                     "-c:a aac",
                     "-b:a 128k",
+                    "-threads 0",
                 ])
                 .size(`${config.width}x${config.height}`)
                 .autopad();
@@ -39,7 +42,7 @@ export class VideoService {
                     command = command.videoFilter(`subtitles='${escaped}'`);
                 } else {
                     const style =
-                        "force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=20'";
+                        "force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'";
                     command = command.videoFilter(
                         `subtitles='${escaped}':${style}`,
                     );
@@ -48,8 +51,26 @@ export class VideoService {
 
             command
                 .output(outputPath)
-                .on("end", () => resolve(outputPath))
-                .on("error", reject)
+                .on("start", (cmd) => {
+                    console.log(
+                        `[Video] Iniciando extração: ${path.basename(outputPath)}`,
+                    );
+                })
+                .on("progress", (progress) => {
+                    if (progress.percent) {
+                        process.stdout.write(
+                            `\r[Video] ${path.basename(outputPath)}: ${Math.round(progress.percent)}%  `,
+                        );
+                    }
+                })
+                .on("end", () => {
+                    process.stdout.write("\n");
+                    resolve(outputPath);
+                })
+                .on("error", (err) => {
+                    process.stdout.write("\n");
+                    reject(err);
+                })
                 .run();
         });
     }
@@ -66,6 +87,8 @@ export class VideoService {
                 .audioCodec("pcm_s16le")
                 .audioFrequency(16000)
                 .audioChannels(1)
+                .addOption("-threads 0")
+                .addOption("-map 0:a:0")
                 .output(outputPath)
                 .on("end", () => resolve(outputPath))
                 .on("error", reject)

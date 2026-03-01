@@ -20,11 +20,30 @@ Cortes automáticos de vídeos longos (podcast, live, gameplay) para TikTok, Sho
     ```
     Defina `WHISPER_CPP_PATH` se estiver em outro diretório (padrão: `../whisper.cpp`).
 
-## Instalação
-
 ```bash
 npm install
 ```
+
+## Docker (Recomendado)
+
+A forma mais fácil de rodar o projeto com todas as dependências (FFmpeg e Whisper) é usando Docker:
+
+1. **Prepare os arquivos**:
+   Crie as pastas `inputs`, `output` e `models` na raiz do projeto.
+2. **Baixe o modelo do Whisper**:
+    ```bash
+    wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin -P ./models
+    ```
+3. **Configure o `.env`**:
+   Garanta que seu `.env` tenha as chaves de API necessárias.
+4. **Suba o container**:
+    ```bash
+    docker-compose up -d --build
+    ```
+5. **Execute a CLI via Docker**:
+    ```bash
+    docker-compose run --rm tikclipper npm run cli -- ./inputs/seu-video.mp4 --karaoke
+    ```
 
 ## Uso
 

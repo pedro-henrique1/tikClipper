@@ -9,7 +9,8 @@ import { logger } from "./logger.service.js";
 
 export class OpenRouterScoringStrategy implements ScoringStrategy {
     private client: OpenAI;
-    private modelName = "deepseek/deepseek-chat";
+    private modelName =
+        process.env.OPEN_ROUTE_MODEL || "mistralai/mistral-7b-instruct";
 
     constructor(apiKey: string) {
         this.client = new OpenAI({
@@ -83,14 +84,20 @@ ${transcriptText}`;
                 ],
                 response_format: { type: "json_object" },
                 temperature: 0.1,
-                max_tokens: 600,
+                max_tokens: 400,
             });
 
             const content = response.choices[0].message.content;
 
             if (!content) return [];
 
-            const parsed = JSON.parse(content);
+            let parsed;
+            try {
+                parsed = JSON.parse(content);
+            } catch (err) {
+                logger.error({ content }, "Falha ao dar parse no JSON da IA:");
+                throw err;
+            }
             const highlights =
                 parsed.segments ||
                 (Array.isArray(parsed)

@@ -52,26 +52,34 @@ export class DetectionService {
                     await this.scoringStrategy.scoreSegments(transcript);
                 allScored.push(...scored);
             } else {
-                // Windowing loop
+                // Parallel Windowing
+                const windows: { start: number; end: number }[] = [];
                 for (let start = 0; start < videoDuration; start += STEP) {
                     const end = Math.min(start + WINDOW_SIZE, videoDuration);
-                    console.log(
-                        `[Detection] Analisando bloco: ${start}s - ${end}s`,
-                    );
+                    windows.push({ start, end });
+                    if (end >= videoDuration) break;
+                }
 
-                    const windowTranscript = transcript.filter(
-                        (s) => s.end > start && s.start < end,
-                    );
+                logger.info(
+                    `[Detection] Analisando ${windows.length} blocos em paralelo...`,
+                );
 
-                    if (windowTranscript.length === 0) continue;
+                const windowResults = await Promise.all(
+                    windows.map(async ({ start, end }) => {
+                        const windowTranscript = transcript.filter(
+                            (s) => s.end > start && s.start < end,
+                        );
 
-                    const scored =
-                        await this.scoringStrategy.scoreSegments(
+                        if (windowTranscript.length === 0) return [];
+
+                        return this.scoringStrategy!.scoreSegments(
                             windowTranscript,
                         );
-                    allScored.push(...scored);
+                    }),
+                );
 
-                    if (end >= videoDuration) break;
+                for (const scored of windowResults) {
+                    allScored.push(...scored);
                 }
             }
 

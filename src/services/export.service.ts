@@ -25,8 +25,7 @@ export class ExportService {
         const baseName = path.basename(inputPath, path.extname(inputPath));
 
         try {
-            for (let i = 0; i < clips.length; i++) {
-                const clip = clips[i];
+            const exportPromises = clips.map(async (clip, i) => {
                 const outputPath = path.join(
                     outputDir,
                     `${baseName}_clip_${i + 1}.${exportConfig.format}`,
@@ -60,8 +59,11 @@ export class ExportService {
                     exportConfig,
                     subtitlePath,
                 );
-                outputPaths.push(outputPath);
-            }
+                return outputPath;
+            });
+
+            const results = await Promise.all(exportPromises);
+            outputPaths.push(...results);
 
             return outputPaths;
         } finally {
@@ -124,26 +126,33 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,10,1
+Style: Default,Arial,90,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,200,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-        const HIGHLIGHT_COLOR = "&H00FFFF&"; // Yellow
+        const COLORS = [
+            "&H00FFFF&", // Yellow
+            "&HFFFF00&", // Cyan
+            "&H00FF00&", // Lime
+            "&HFF00FF&", // Magenta
+            "&H0080FF&", // Orange
+        ];
 
         const events = segments
-            .flatMap((seg) => {
-                if (seg.words && seg.words.length > 0) {
-                    return seg.words.map((w, currentIdx) => {
-                        const start = this.formatAssTime(w.start);
-                        const end = this.formatAssTime(w.end);
+            .flatMap((seg, segIdx) => {
+                const highlightColor = COLORS[segIdx % COLORS.length];
 
-                        // Construct the full sentence, highlighting only the current word
+                if (seg.words && seg.words.length > 0) {
+                    return seg.words.map((currentWord, currentIdx) => {
+                        const start = this.formatAssTime(currentWord.start);
+                        const end = this.formatAssTime(currentWord.end);
+
                         const text = seg
                             .words!.map((wordObj, idx) => {
                                 if (idx === currentIdx) {
-                                    return `{\\c${HIGHLIGHT_COLOR}}${wordObj.word}{\\r}`;
+                                    return `{\\c${highlightColor}}${wordObj.word}{\\c&HFFFFFF&}`;
                                 }
                                 return wordObj.word;
                             })

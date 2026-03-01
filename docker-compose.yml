@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  tikclipper:
+    build: .
+    volumes:
+      - ./output:/app/output
+      - ./inputs:/app/inputs
+      - ./models:/app/whisper.cpp/models
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true

@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { cpus, tmpdir } from "os";
 import path from "path";
 import type { TranscriptSegment } from "../types/index.js";
 import { logger } from "./logger.service.js";
@@ -35,6 +35,7 @@ export class TranscriptionService {
         const audioPath = path.join(tempDir, "audio.wav");
 
         try {
+            logger.info(`[Transcription] Extraindo áudio de ${inputPath}...`);
             await this.videoService.extractAudioToWav(inputPath, audioPath);
 
             const segments = await this.runWhisper(audioPath, wordTimestamps);
@@ -68,10 +69,19 @@ export class TranscriptionService {
             return [];
         }
 
-        const args = ["-m", modelPath, "-f", audioPath, "-l", "pt"];
+        const args = [
+            "-m",
+            modelPath,
+            "-f",
+            audioPath,
+            "-l",
+            "pt",
+            "-t",
+            cpus().length.toString(),
+        ];
         if (wordTimestamps) {
-            // -ml 1 forces one word per line (mostly) which makes parsing word timestamps easier
-            args.push("-ml", "1");
+            // --split-on-word (sow) ensures we don't break mid-word tokens
+            args.push("--split-on-word");
         }
 
         const segments = await new Promise<TranscriptSegment[]>(
@@ -80,10 +90,19 @@ export class TranscriptionService {
                     cwd: WHISPER_CPP_PATH,
                 });
 
+                logger.info(
+                    `[Transcription] Iniciando whisper-cli em ${audioPath}...`,
+                );
+
                 let stdout = "";
                 let stderr = "";
 
-                proc.stdout.on("data", (data) => (stdout += data.toString()));
+                proc.stdout.on("data", (data) => {
+                    const chunk = data.toString();
+                    stdout += chunk;
+                    // Print segments to console so the user sees progress
+                    process.stdout.write(chunk);
+                });
                 proc.stderr.on("data", (data) => (stderr += data.toString()));
 
                 proc.on("close", (code) => {
@@ -112,7 +131,8 @@ export class TranscriptionService {
                             if (!match) continue;
 
                             const [, startStr, endStr, textRaw] = match;
-                            const text = textRaw.trim();
+                            // Clean up Whisper artifacts (sometimes it adds leading spaces or specific tokens)
+                            const text = textRaw.trim().replace(/^\[.*\] /, "");
                             if (!text) continue;
 
                             const start = parseWhisperTime(startStr);
@@ -121,9 +141,10 @@ export class TranscriptionService {
                             if (wordTimestamps) {
                                 currentWords.push({ word: text, start, end });
 
-                                // Group words into segments of ~6 words for readability
+                                // Group words into segments of ~4 words for better readability
+                                // or if it ends with punctuation
                                 if (
-                                    currentWords.length >= 6 ||
+                                    currentWords.length >= 4 ||
                                     text.match(/[.!?]$/)
                                 ) {
                                     parsed.push({
@@ -133,13 +154,18 @@ export class TranscriptionService {
                                         ].end,
                                         text: currentWords
                                             .map((w) => w.word)
-                                            .join(" "),
+                                            .join(" ")
+                                            .replace(/\s+([,.!?])/g, "$1"), // Fix space before punctuation
                                         words: [...currentWords],
                                     });
                                     currentWords = [];
                                 }
                             } else {
-                                parsed.push({ start, end, text });
+                                parsed.push({
+                                    start,
+                                    end,
+                                    text: text.replace(/\s+([,.!?])/g, "$1"),
+                                });
                             }
                         }
 
@@ -148,7 +174,10 @@ export class TranscriptionService {
                             parsed.push({
                                 start: currentWords[0].start,
                                 end: currentWords[currentWords.length - 1].end,
-                                text: currentWords.map((w) => w.word).join(" "),
+                                text: currentWords
+                                    .map((w) => w.word)
+                                    .join(" ")
+                                    .replace(/\s+([,.!?])/g, "$1"),
                                 words: [...currentWords],
                             });
                         }
