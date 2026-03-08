@@ -197,10 +197,15 @@ export function registerCutCommand(program: Command): void {
             }
             spin3?.succeed(chalk.green("✅ Captions generated"));
 
-            const outputDir = path.join(
-                OUTPUT_DIR,
-                path.basename(inputPath, path.extname(inputPath)),
+            const rawVideoName = path.basename(
+                inputPath,
+                path.extname(inputPath),
             );
+            const safeVideoName =
+                rawVideoName.length > 40
+                    ? rawVideoName.slice(0, 40)
+                    : rawVideoName;
+            const outputDir = path.resolve(OUTPUT_DIR, safeVideoName);
             await mkdir(outputDir, { recursive: true });
             const clipsJsonPath = path.join(outputDir, "clips.json");
             await writeFile(

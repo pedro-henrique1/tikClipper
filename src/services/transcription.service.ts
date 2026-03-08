@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import ffmpegStatic from "ffmpeg-static";
 import { existsSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import { cpus, tmpdir } from "os";
@@ -6,6 +7,8 @@ import path from "path";
 import type { TranscriptSegment } from "../types/index.js";
 import { logger } from "./logger.service.js";
 import { VideoService } from "./video.service.js";
+
+const FFMPEG_BIN = (ffmpegStatic as unknown as string) ?? "ffmpeg";
 
 const WHISPER_CPP_PATH =
     process.env.WHISPER_CPP_PATH ??
@@ -16,6 +19,14 @@ const WHISPER_BINARY =
     path.join(WHISPER_CPP_PATH, "build", "bin", "whisper-cli");
 
 const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "models/ggml-base.bin";
+
+// How many parallel whisper processes to run.
+// Whisper already uses -t threads internally; spawning too many processes
+// would over-subscribe the CPU.  Cap at 4.
+const PARALLEL_CHUNKS = Math.min(cpus().length, 4);
+
+// Overlap between chunks (seconds) so we don't cut words at boundaries.
+const CHUNK_OVERLAP = 2;
 
 function parseWhisperTime(time: string): number {
     const match = time.match(/(\d+):(\d+):(\d+)[.,](\d+)/);
@@ -30,44 +41,195 @@ export class TranscriptionService {
     async transcribe(
         inputPath: string,
         wordTimestamps = false,
+        onProgress?: (currentSeconds: number) => void,
     ): Promise<TranscriptSegment[]> {
         const tempDir = await mkdtemp(path.join(tmpdir(), "tikclipper-"));
-        const audioPath = path.join(tempDir, "audio.wav");
 
         try {
-            logger.info(`[Transcription] Extraindo áudio de ${inputPath}...`);
-            await this.videoService.extractAudioToWav(inputPath, audioPath);
+            // Get video duration to plan chunks
+            const { duration } = await this.videoService.getMetadata(inputPath);
 
-            const segments = await this.runWhisper(audioPath, wordTimestamps);
-            return segments;
+            const useSingleChunk = duration <= 120 || PARALLEL_CHUNKS <= 1;
+
+            if (useSingleChunk) {
+                // Short video — single pass
+                const audioPath = path.join(tempDir, "audio.wav");
+                await this.videoService.extractAudioToWav(inputPath, audioPath);
+                return await this.runWhisper(
+                    audioPath,
+                    wordTimestamps,
+                    0,
+                    onProgress,
+                );
+            }
+
+            // ── Parallel chunked approach ─────────────────────────────
+            const chunkDuration = duration / PARALLEL_CHUNKS;
+            console.log(
+                `[Transcription] Dividindo ${duration.toFixed(0)}s em ${PARALLEL_CHUNKS} chunks de ~${chunkDuration.toFixed(0)}s cada`,
+            );
+
+            // Extract all chunks in parallel (ffmpeg is fast)
+            const chunkPaths: string[] = [];
+            const chunkOffsets: number[] = [];
+
+            await Promise.all(
+                Array.from({ length: PARALLEL_CHUNKS }, async (_, i) => {
+                    const start = Math.max(
+                        0,
+                        i * chunkDuration - CHUNK_OVERLAP,
+                    );
+                    const end = Math.min(
+                        duration,
+                        (i + 1) * chunkDuration + CHUNK_OVERLAP,
+                    );
+                    const chunkPath = path.join(tempDir, `chunk_${i}.wav`);
+                    chunkPaths[i] = chunkPath;
+                    chunkOffsets[i] = start;
+
+                    await this.extractAudioChunk(
+                        inputPath,
+                        chunkPath,
+                        start,
+                        end - start,
+                    );
+                }),
+            );
+
+            console.log(
+                `[Transcription] ${PARALLEL_CHUNKS} chunks extraídos — iniciando whisper em paralelo...`,
+            );
+
+            // Track aggregate progress across all chunks
+            const chunkProgress = new Array(PARALLEL_CHUNKS).fill(0);
+
+            // Run whisper on all chunks in parallel
+            const chunkResults = await Promise.all(
+                chunkPaths.map((chunkPath, i) =>
+                    this.runWhisper(
+                        chunkPath,
+                        wordTimestamps,
+                        chunkOffsets[i],
+                        (current) => {
+                            if (!onProgress) return;
+                            // current is relative to chunk; convert to absolute
+                            chunkProgress[i] = chunkOffsets[i] + current;
+                            // Report the minimum progress (slowest chunk) as overall position
+                            onProgress(Math.min(...chunkProgress));
+                        },
+                    ),
+                ),
+            );
+
+            // Merge all segments, sort by start time, and remove duplicates
+            // from overlapping regions (keep segment if its start is in the
+            // "primary" region of its chunk, i.e., before the next chunk's start)
+            const merged: TranscriptSegment[] = [];
+
+            for (let i = 0; i < chunkResults.length; i++) {
+                const primaryEnd =
+                    i < PARALLEL_CHUNKS - 1
+                        ? (i + 1) * chunkDuration
+                        : Infinity;
+
+                for (const seg of chunkResults[i]) {
+                    if (seg.start < primaryEnd) {
+                        merged.push(seg);
+                    }
+                }
+            }
+
+            merged.sort((a, b) => a.start - b.start);
+
+            // Remove near-duplicate segments (same start within 0.5s)
+            const deduped = merged.filter(
+                (seg, idx) =>
+                    idx === 0 ||
+                    Math.abs(seg.start - merged[idx - 1].start) > 0.5,
+            );
+
+            console.log(
+                `[Transcription] ${deduped.length} segmento(s) após merge dos ${PARALLEL_CHUNKS} chunks`,
+            );
+
+            return deduped;
         } finally {
             await rm(tempDir, { recursive: true, force: true });
         }
     }
 
+    /** Extract a time slice of audio using ffmpeg */
+    private extractAudioChunk(
+        inputPath: string,
+        outputPath: string,
+        startSec: number,
+        durationSec: number,
+    ): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const args = [
+                "-y",
+                "-ss",
+                startSec.toFixed(3),
+                "-i",
+                inputPath,
+                "-t",
+                durationSec.toFixed(3),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-threads",
+                "2",
+                outputPath,
+            ];
+
+            const proc = spawn(FFMPEG_BIN, args, {
+                stdio: ["ignore", "ignore", "pipe"],
+            });
+            let stderr = "";
+            proc.stderr?.on("data", (d) => (stderr += d.toString()));
+            proc.on("close", (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`ffmpeg chunk exit ${code}: ${stderr}`));
+            });
+            proc.on("error", reject);
+        });
+    }
+
     private async runWhisper(
         audioPath: string,
         wordTimestamps = false,
+        timeOffset = 0,
+        onProgress?: (currentSeconds: number) => void,
     ): Promise<TranscriptSegment[]> {
         const modelPath = path.isAbsolute(WHISPER_MODEL)
             ? WHISPER_MODEL
             : path.join(WHISPER_CPP_PATH, WHISPER_MODEL);
 
         if (!existsSync(WHISPER_BINARY)) {
-            logger.warn(
-                `[Transcription] Binário whisper.cpp não encontrado em ${WHISPER_BINARY}. ` +
+            logger.debug(
+                `[Transcription] whisper.cpp binary not found at ${WHISPER_BINARY}. ` +
                     "Defina WHISPER_CPP_PATH ou WHISPER_BINARY apontando para o executável (ex.: build/bin/whisper-cli).",
             );
             return [];
         }
 
         if (!existsSync(modelPath)) {
-            logger.warn(
-                `[Transcription] Modelo não encontrado em ${modelPath}. ` +
+            logger.debug(
+                `[Transcription] Model not found at ${modelPath}. ` +
                     "Baixe com ./models/download-ggml-model.sh base",
             );
             return [];
         }
+
+        // Use half the logical CPUs per chunk (chunks run in parallel)
+        const threadsPerChunk = Math.max(
+            1,
+            Math.floor(cpus().length / PARALLEL_CHUNKS),
+        );
 
         const args = [
             "-m",
@@ -77,10 +239,13 @@ export class TranscriptionService {
             "-l",
             "pt",
             "-t",
-            cpus().length.toString(),
+            threadsPerChunk.toString(),
+            "--beam-size",
+            "1",
+            "--best-of",
+            "1",
         ];
         if (wordTimestamps) {
-            // --split-on-word (sow) ensures we don't break mid-word tokens
             args.push("--split-on-word");
         }
 
@@ -90,18 +255,21 @@ export class TranscriptionService {
                     cwd: WHISPER_CPP_PATH,
                 });
 
-                logger.info(
-                    `[Transcription] Iniciando whisper-cli em ${audioPath}...`,
-                );
-
                 let stdout = "";
                 let stderr = "";
 
                 proc.stdout.on("data", (data) => {
                     const chunk = data.toString();
                     stdout += chunk;
-                    // Print segments to console so the user sees progress
-                    process.stdout.write(chunk);
+
+                    if (onProgress) {
+                        const segRegex =
+                            /\[\d+:\d+:\d+[.,]\d+\s+-->\s+(\d+:\d+:\d+[.,]\d+)\]/g;
+                        let m: RegExpExecArray | null;
+                        while ((m = segRegex.exec(chunk)) !== null) {
+                            onProgress(parseWhisperTime(m[1]));
+                        }
+                    }
                 });
                 proc.stderr.on("data", (data) => (stderr += data.toString()));
 
@@ -117,7 +285,6 @@ export class TranscriptionService {
                         const lines = stdout.split(/\r?\n/);
                         const parsed: TranscriptSegment[] = [];
 
-                        // Temporary words for current segment being built
                         let currentWords: {
                             word: string;
                             start: number;
@@ -131,18 +298,17 @@ export class TranscriptionService {
                             if (!match) continue;
 
                             const [, startStr, endStr, textRaw] = match;
-                            // Clean up Whisper artifacts (sometimes it adds leading spaces or specific tokens)
                             const text = textRaw.trim().replace(/^\[.*\] /, "");
                             if (!text) continue;
 
-                            const start = parseWhisperTime(startStr);
-                            const end = parseWhisperTime(endStr);
+                            // Shift timestamps to absolute video time
+                            const start =
+                                parseWhisperTime(startStr) + timeOffset;
+                            const end = parseWhisperTime(endStr) + timeOffset;
 
                             if (wordTimestamps) {
                                 currentWords.push({ word: text, start, end });
 
-                                // Group words into segments of ~4 words for better readability
-                                // or if it ends with punctuation
                                 if (
                                     currentWords.length >= 4 ||
                                     text.match(/[.!?]$/)
@@ -155,7 +321,7 @@ export class TranscriptionService {
                                         text: currentWords
                                             .map((w) => w.word)
                                             .join(" ")
-                                            .replace(/\s+([,.!?])/g, "$1"), // Fix space before punctuation
+                                            .replace(/\s+([,.!?])/g, "$1"),
                                         words: [...currentWords],
                                     });
                                     currentWords = [];
@@ -169,7 +335,6 @@ export class TranscriptionService {
                             }
                         }
 
-                        // Push remaining words if any
                         if (currentWords.length > 0) {
                             parsed.push({
                                 start: currentWords[0].start,

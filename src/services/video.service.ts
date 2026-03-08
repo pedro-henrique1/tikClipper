@@ -4,7 +4,7 @@ import { mkdir } from "fs/promises";
 import path from "path";
 import type { Clip, ExportConfig } from "../types/index.js";
 
-ffmpeg.setFfmpegPath(ffmpegStatic ?? "");
+ffmpeg.setFfmpegPath((ffmpegStatic as unknown as string) ?? "");
 
 export class VideoService {
     async extractClip(
@@ -13,15 +13,74 @@ export class VideoService {
         clip: Clip,
         config: ExportConfig,
         subtitlesPath?: string,
+        onProgress?: (percent: number) => void,
     ): Promise<string> {
         await mkdir(path.dirname(outputPath), { recursive: true });
 
         return new Promise((resolve, reject) => {
             const duration = clip.endTime - clip.startTime;
-            let command = ffmpeg()
+
+            // Build the filter_complex graph.
+            // All filters must go in complexFilter so named pads [bg]/[fg]
+            // are valid.  .videoFilters([...]) with labels generates invalid -vf.
+            const filters: ffmpeg.FilterSpecification[] = [
+                // Background: upscale to fill 1080x1920 and blur
+                {
+                    filter: "scale",
+                    options: "1080:1920:force_original_aspect_ratio=increase",
+                    inputs: "0:v",
+                    outputs: "scaled_bg",
+                },
+                {
+                    filter: "crop",
+                    options: "1080:1920",
+                    inputs: "scaled_bg",
+                    outputs: "cropped_bg",
+                },
+                {
+                    filter: "boxblur",
+                    options: "20:10",
+                    inputs: "cropped_bg",
+                    outputs: "bg",
+                },
+                // Foreground: fit within 1080 width (even height required by libx264)
+                {
+                    filter: "scale",
+                    options: "1080:trunc(ow/a/2)*2",
+                    inputs: "0:v",
+                    outputs: "fg",
+                },
+                // Overlay fg centred on bg
+                {
+                    filter: "overlay",
+                    options: "(W-w)/2:(H-h)/2",
+                    inputs: ["bg", "fg"],
+                    outputs: subtitlesPath ? "overlaid" : "out",
+                },
+            ];
+
+            // If we have subtitles, append as the last filter in the graph
+            if (subtitlesPath) {
+                const escaped = subtitlesPath
+                    .replace(/\\/g, "\\\\")
+                    .replace(/'/g, "\\'")
+                    .replace(/:/g, "\\:");
+                const isAss = subtitlesPath.toLowerCase().endsWith(".ass");
+                filters.push({
+                    filter: isAss ? "subtitles" : "subtitles",
+                    options: isAss
+                        ? `'${escaped}'`
+                        : `'${escaped}':force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'`,
+                    inputs: "overlaid",
+                    outputs: "out",
+                });
+            }
+
+            ffmpeg()
                 .input(inputPath)
                 .setStartTime(clip.startTime)
                 .setDuration(duration)
+                .complexFilter(filters, "out")
                 .outputOptions([
                     "-c:v libx264",
                     "-preset ultrafast",
@@ -30,45 +89,24 @@ export class VideoService {
                     "-b:a 128k",
                     "-threads 0",
                 ])
-                .size(`${config.width}x${config.height}`)
-                .autopad();
-
-            if (subtitlesPath) {
-                const escaped = subtitlesPath.replace(/'/g, "\\'");
-                const isAss = subtitlesPath.toLowerCase().endsWith(".ass");
-
-                if (isAss) {
-                    // For ASS files, we let the embedded styles (including karaoke) handle the look
-                    command = command.videoFilter(`subtitles='${escaped}'`);
-                } else {
-                    const style =
-                        "force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'";
-                    command = command.videoFilter(
-                        `subtitles='${escaped}':${style}`,
-                    );
-                }
-            }
-
-            command
                 .output(outputPath)
-                .on("start", (cmd) => {
+                .on("start", () => {
                     console.log(
                         `[Video] Iniciando extração: ${path.basename(outputPath)}`,
                     );
                 })
                 .on("progress", (progress) => {
-                    if (progress.percent) {
-                        process.stdout.write(
-                            `\r[Video] ${path.basename(outputPath)}: ${Math.round(progress.percent)}%  `,
+                    if (progress.percent !== undefined && onProgress) {
+                        onProgress(
+                            Math.max(0, Math.min(100, progress.percent)),
                         );
                     }
                 })
-                .on("end", () => {
-                    process.stdout.write("\n");
-                    resolve(outputPath);
-                })
-                .on("error", (err) => {
-                    process.stdout.write("\n");
+                .on("end", () => resolve(outputPath))
+                .on("error", (err, stdout, stderr) => {
+                    console.error(`[Video] Erro ffmpeg:`, err.message);
+                    if (stderr)
+                        console.error(`[Video] stderr:`, stderr.slice(-500));
                     reject(err);
                 })
                 .run();

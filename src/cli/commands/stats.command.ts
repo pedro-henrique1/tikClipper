@@ -22,10 +22,15 @@ export function registerStatsCommand(program: Command): void {
                 process.exit(1);
             }
 
-            const outputDir = path.join(
-                OUTPUT_DIR,
-                path.basename(absolutePath, path.extname(absolutePath)),
+            const rawVideoName = path.basename(
+                absolutePath,
+                path.extname(absolutePath),
             );
+            const safeVideoName =
+                rawVideoName.length > 40
+                    ? rawVideoName.slice(0, 40)
+                    : rawVideoName;
+            const outputDir = path.resolve(OUTPUT_DIR, safeVideoName);
             const clipsJsonPath = path.join(outputDir, "clips.json");
 
             if (!existsSync(clipsJsonPath)) {

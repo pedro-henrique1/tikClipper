@@ -5,7 +5,6 @@ import type {
     ScoringStrategy,
     TranscriptSegment,
 } from "../types/index.js";
-import { logger } from "./logger.service.js";
 
 export class OpenRouterScoringStrategy implements ScoringStrategy {
     private client: OpenAI;
@@ -26,50 +25,39 @@ export class OpenRouterScoringStrategy implements ScoringStrategy {
     async scoreSegments(
         transcript: TranscriptSegment[],
     ): Promise<ScoredSegment[]> {
-        const simplifiedTranscript = transcript.map((t) => ({
-            s: t.start,
-            e: t.end,
-            t: t.text,
-        }));
-        const transcriptText = transcript
+        // Compact format: ~60% fewer tokens than the verbose [start - end] text form
+        const compactTranscript = transcript
             .map(
                 (t) =>
-                    `[${t.start.toFixed(2)} - ${t.end.toFixed(2)}] ${t.text}`,
+                    `${t.start.toFixed(1)}-${t.end.toFixed(1)}: ${t.text.trim()}`,
             )
             .join("\n");
-        const prompt = `
-Você é especialista em retenção extrema para vídeos curtos.
 
-OBJETIVO:
-Selecionar os 3 melhores trechos que:
-- Funcionem isoladamente
-- Comecem com frase impactante
-- Tenham conflito, surpresa ou opinião forte
-- Não dependam de contexto anterior
-- Não comecem com "então", "tipo", "como eu estava dizendo"
+        const firstTs = transcript[0]?.start.toFixed(1) ?? "0";
+        const lastTs = transcript[transcript.length - 1]?.end.toFixed(1) ?? "0";
 
-PROCESSO:
-1. Analise o fluxo emocional.
-2. Identifique pontos de pico emocional.
-3. Agrupe segmentos consecutivos até atingir entre 45 e 90 segundos.
-4. Ajuste o início para começar na frase mais forte possível.
-5. Nunca corte no meio de raciocínio.
+        const prompt = `Os timestamps abaixo são tempos ABSOLUTOS do vídeo (em segundos). Use-os EXATAMENTE como aparecem.
 
-RETORNE APENAS:
+Selecione 1 a 3 trechos virais entre ${firstTs}s e ${lastTs}s.
+Critérios: impacto emocional, abertura forte, conflito/surpresa, independente de contexto.
+Cada trecho deve ter entre 45s e 90s de duração.
+Se não houver momentos fortes, retorne o melhor disponível.
 
+RETORNE APENAS JSON (sem texto extra):
 {
   "segments": [
-    {
-      "startTime": number,
-      "endTime": number,
-      "score": number,
-      "reason": "Por que isso viraliza?"
-    }
+    { "startTime": number, "endTime": number, "score": number (0-1), "reason": "string" }
   ]
 }
 
-Transcrição:
-${transcriptText}`;
+Segmentos:
+${compactTranscript}
+`;
+
+        console.log(`[OpenRouter] Usando modelo: ${this.modelName}`);
+        console.log(
+            `[OpenRouter] Enviando ${transcript.length} segmento(s) para scoring`,
+        );
 
         try {
             const response = await this.client.chat.completions.create({
@@ -82,31 +70,73 @@ ${transcriptText}`;
                     },
                     { role: "user", content: prompt },
                 ],
-                response_format: { type: "json_object" },
-                temperature: 0.1,
-                max_tokens: 400,
+                // NOTE: response_format is intentionally omitted — many OpenRouter models
+                // (e.g. deepseek) return content:null when this is set.
+                temperature: 0.2,
+                max_tokens: 600,
             });
 
-            const content = response.choices[0].message.content;
+            const choice = response.choices[0];
+            console.log(
+                `[OpenRouter] finish_reason: ${choice.finish_reason} | content length: ${choice.message.content?.length ?? "null"}`,
+            );
+            const content = choice.message.content;
+            console.log(`[OpenRouter] Resposta bruta da IA: ${content}`);
 
-            if (!content) return [];
+            if (!content) {
+                console.warn("[OpenRouter] IA retornou conteúdo vazio.");
+                return [];
+            }
+
+            // Extract first JSON object from the response — handles raw JSON,
+            // ```json ... ``` fenced blocks, and any surrounding prose.
+            const jsonMatch =
+                content.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+                content.match(/(\{[\s\S]*\})/);
+            const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
 
             let parsed;
             try {
-                parsed = JSON.parse(content);
+                parsed = JSON.parse(jsonStr);
             } catch (err) {
-                logger.error({ content }, "Falha ao dar parse no JSON da IA:");
+                console.error(
+                    "[OpenRouter] Falha ao dar parse no JSON:",
+                    jsonStr,
+                );
                 throw err;
             }
+
             const highlights =
                 parsed.segments ||
                 (Array.isArray(parsed)
                     ? parsed
                     : parsed.highlights || parsed.clips || []);
 
+            console.log(
+                `[OpenRouter] Chaves do JSON recebido: ${Object.keys(parsed).join(", ")}`,
+            );
+            console.log(
+                `[OpenRouter] ${highlights.length} segmento(s) retornado(s) pela IA.`,
+            );
+            if (highlights.length > 0) {
+                console.log(
+                    "[OpenRouter] Segmentos brutos da IA:",
+                    JSON.stringify(highlights, null, 2),
+                );
+            }
+
             return highlights as ScoredSegment[];
         } catch (error) {
-            logger.error({ err: error }, "Erro ao processar OpenRouter IA:");
+            // Re-throw authentication errors so the CLI can surface them clearly
+            if (
+                typeof error === "object" &&
+                error !== null &&
+                "status" in error &&
+                (error as { status: number }).status === 401
+            ) {
+                throw error;
+            }
+            console.error("[OpenRouter] Erro ao chamar a API:", error);
             return [];
         }
     }

@@ -5,6 +5,7 @@ export interface Clip {
     score: number;
     reason?: string;
     transcript?: string;
+    caption?: string;
 }
 
 export interface Word {
@@ -25,6 +26,7 @@ export interface ScoredSegment {
     endTime: number;
     score: number;
     reason: string;
+    caption?: string;
 }
 
 export interface ExportConfig {
@@ -43,6 +45,14 @@ export interface PipelineConfig {
     targetClips: number;
     exportConfig: ExportConfig;
     karaoke?: boolean;
+    upload?: boolean;
+    uploadConfig?: UploadConfig;
+}
+
+export interface UploadConfig {
+    platform: "tiktok" | "reels" | "shorts";
+    cookiesPath: string;
+    caption?: string;
 }
 
 export type JobStatus = "pending" | "processing" | "completed" | "failed";
@@ -59,4 +69,11 @@ export interface ProcessingJob {
 
 export interface ScoringStrategy {
     scoreSegments(transcript: TranscriptSegment[]): Promise<ScoredSegment[]>;
+}
+
+export interface DetectionMeta {
+    windowsAnalyzed: number;
+    tokensUsed?: number;
+    tokensSaved?: number;
+    earlyStop?: boolean;
 }
