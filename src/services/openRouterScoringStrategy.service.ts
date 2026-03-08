@@ -25,7 +25,6 @@ export class OpenRouterScoringStrategy implements ScoringStrategy {
     async scoreSegments(
         transcript: TranscriptSegment[],
     ): Promise<ScoredSegment[]> {
-        // Compact format: ~60% fewer tokens than the verbose [start - end] text form
         const compactTranscript = transcript
             .map(
                 (t) =>
@@ -70,8 +69,7 @@ ${compactTranscript}
                     },
                     { role: "user", content: prompt },
                 ],
-                // NOTE: response_format is intentionally omitted — many OpenRouter models
-                // (e.g. deepseek) return content:null when this is set.
+
                 temperature: 0.2,
                 max_tokens: 600,
             });
@@ -88,8 +86,6 @@ ${compactTranscript}
                 return [];
             }
 
-            // Extract first JSON object from the response — handles raw JSON,
-            // ```json ... ``` fenced blocks, and any surrounding prose.
             const jsonMatch =
                 content.match(/```(?:json)?\s*([\s\S]*?)```/) ||
                 content.match(/(\{[\s\S]*\})/);
@@ -127,7 +123,6 @@ ${compactTranscript}
 
             return highlights as ScoredSegment[];
         } catch (error) {
-            // Re-throw authentication errors so the CLI can surface them clearly
             if (
                 typeof error === "object" &&
                 error !== null &&

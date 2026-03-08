@@ -20,12 +20,8 @@ const WHISPER_BINARY =
 
 const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "models/ggml-base.bin";
 
-// How many parallel whisper processes to run.
-// Whisper already uses -t threads internally; spawning too many processes
-// would over-subscribe the CPU.  Cap at 4.
 const PARALLEL_CHUNKS = Math.min(cpus().length, 4);
 
-// Overlap between chunks (seconds) so we don't cut words at boundaries.
 const CHUNK_OVERLAP = 2;
 
 function parseWhisperTime(time: string): number {
@@ -46,13 +42,11 @@ export class TranscriptionService {
         const tempDir = await mkdtemp(path.join(tmpdir(), "tikclipper-"));
 
         try {
-            // Get video duration to plan chunks
             const { duration } = await this.videoService.getMetadata(inputPath);
 
             const useSingleChunk = duration <= 120 || PARALLEL_CHUNKS <= 1;
 
             if (useSingleChunk) {
-                // Short video — single pass
                 const audioPath = path.join(tempDir, "audio.wav");
                 await this.videoService.extractAudioToWav(inputPath, audioPath);
                 return await this.runWhisper(
@@ -63,13 +57,11 @@ export class TranscriptionService {
                 );
             }
 
-            // ── Parallel chunked approach ─────────────────────────────
             const chunkDuration = duration / PARALLEL_CHUNKS;
             console.log(
                 `[Transcription] Dividindo ${duration.toFixed(0)}s em ${PARALLEL_CHUNKS} chunks de ~${chunkDuration.toFixed(0)}s cada`,
             );
 
-            // Extract all chunks in parallel (ffmpeg is fast)
             const chunkPaths: string[] = [];
             const chunkOffsets: number[] = [];
 
@@ -100,10 +92,8 @@ export class TranscriptionService {
                 `[Transcription] ${PARALLEL_CHUNKS} chunks extraídos — iniciando whisper em paralelo...`,
             );
 
-            // Track aggregate progress across all chunks
             const chunkProgress = new Array(PARALLEL_CHUNKS).fill(0);
 
-            // Run whisper on all chunks in parallel
             const chunkResults = await Promise.all(
                 chunkPaths.map((chunkPath, i) =>
                     this.runWhisper(
@@ -112,18 +102,15 @@ export class TranscriptionService {
                         chunkOffsets[i],
                         (current) => {
                             if (!onProgress) return;
-                            // current is relative to chunk; convert to absolute
+
                             chunkProgress[i] = chunkOffsets[i] + current;
-                            // Report the minimum progress (slowest chunk) as overall position
+
                             onProgress(Math.min(...chunkProgress));
                         },
                     ),
                 ),
             );
 
-            // Merge all segments, sort by start time, and remove duplicates
-            // from overlapping regions (keep segment if its start is in the
-            // "primary" region of its chunk, i.e., before the next chunk's start)
             const merged: TranscriptSegment[] = [];
 
             for (let i = 0; i < chunkResults.length; i++) {
@@ -141,7 +128,6 @@ export class TranscriptionService {
 
             merged.sort((a, b) => a.start - b.start);
 
-            // Remove near-duplicate segments (same start within 0.5s)
             const deduped = merged.filter(
                 (seg, idx) =>
                     idx === 0 ||
@@ -225,7 +211,6 @@ export class TranscriptionService {
             return [];
         }
 
-        // Use half the logical CPUs per chunk (chunks run in parallel)
         const threadsPerChunk = Math.max(
             1,
             Math.floor(cpus().length / PARALLEL_CHUNKS),
@@ -246,9 +231,6 @@ export class TranscriptionService {
             "1",
         ];
         if (wordTimestamps) {
-            // --split-on-word alone still groups words into segments.
-            // -ml 1 forces each output line to be a single word so we
-            // get individual per-word timestamps for karaoke highlighting.
             args.push("--split-on-word", "-ml", "1");
         }
 
@@ -304,7 +286,6 @@ export class TranscriptionService {
                             const text = textRaw.trim().replace(/^\[.*\] /, "");
                             if (!text) continue;
 
-                            // Shift timestamps to absolute video time
                             const start =
                                 parseWhisperTime(startStr) + timeOffset;
                             const end = parseWhisperTime(endStr) + timeOffset;

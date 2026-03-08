@@ -19,7 +19,6 @@ export interface DetectionResult {
     meta: DetectionMeta;
 }
 
-// ─── Heuristic keyword lists ────────────────────────────────────────────────
 const HIGH_IMPACT_WORDS = [
     // PT
     "incrível",
@@ -91,45 +90,25 @@ const HIGH_IMPACT_WORDS = [
     "dangerous",
 ];
 
-// ─── Heuristic scorer ────────────────────────────────────────────────────────
-/**
- * Scores a single transcript segment in [0..1] based on:
- *   - High-impact keyword density
- *   - Presence of ? or ! (emotional markers)
- *   - Text density (words per second)
- */
 function heuristicScore(seg: TranscriptSegment): number {
     const text = seg.text.toLowerCase();
     const duration = Math.max(seg.end - seg.start, 0.1);
     const words = text.split(/\s+/).filter(Boolean);
 
-    // Keyword hits (capped at 3 so one magic word doesn't dominate)
     const hits = Math.min(
         HIGH_IMPACT_WORDS.filter((w) => text.includes(w)).length,
         3,
     );
-    const keywordScore = hits / 3; // [0..1]
+    const keywordScore = hits / 3;
 
-    // Punctuation bonus
     const hasEmotional = /[?!]/.test(seg.text) ? 0.3 : 0;
 
-    // Words-per-second density (sweet spot: 2-4 wps)
     const wps = words.length / duration;
     const densityScore = Math.min(wps / 4, 1) * 0.2;
 
     return Math.min(keywordScore * 0.5 + hasEmotional + densityScore, 1);
 }
 
-/**
- * Step 1 — Heuristic pre-filter (O(n log n)).
- *
- * Algorithm:
- *   1. Score every segment individually.
- *   2. Pick the top-scoring segments as "peaks".
- *   3. Expand each peak forward (and optionally backward) until we have
- *      between minDuration and maxDuration of content.
- *   4. Remove overlapping results, keeping the highest-scored.
- */
 function extractCandidates(
     transcript: TranscriptSegment[],
     config: DetectionConfig,
@@ -137,7 +116,6 @@ function extractCandidates(
 ): { segments: TranscriptSegment[]; hScore: number }[] {
     if (transcript.length === 0) return [];
 
-    // 1. Score every segment — O(n)
     const scored = transcript.map((seg) => ({
         seg,
         score: heuristicScore(seg),
@@ -153,32 +131,27 @@ function extractCandidates(
         `[Heuristic] Scores: min=${min.toFixed(2)} max=${max.toFixed(2)} avg=${avg.toFixed(2)} | ${transcript.length} segmento(s)`,
     );
 
-    // 2. Pick top peaks — sort indices by score descending, O(n log n)
     const byScore = [...scored].sort((a, b) => b.score - a.score);
 
-    // 3. Expand each peak into a clip window — O(n × maxCandidates)
     const windows: { start: number; end: number; score: number }[] = [];
 
     for (const peak of byScore) {
-        if (windows.length >= maxCandidates * 3) break; // enough raw candidates
+        if (windows.length >= maxCandidates * 3) break;
 
         let lo = peak.idx;
         let hi = peak.idx;
         let duration = peak.seg.end - peak.seg.start;
 
-        // Expand forward first (more natural clip start at the peak)
         while (duration < config.maxDuration && hi + 1 < transcript.length) {
             hi++;
             duration = transcript[hi].end - transcript[lo].start;
         }
-
-        // If still too short, expand backward
         while (duration < config.minDuration && lo > 0) {
             lo--;
             duration = transcript[hi].end - transcript[lo].start;
         }
 
-        if (duration < config.minDuration) continue; // can't fill min — skip
+        if (duration < config.minDuration) continue;
 
         windows.push({
             start: transcript[lo].start,
@@ -194,7 +167,6 @@ function extractCandidates(
         return [{ segments: transcript, hScore: 0 }];
     }
 
-    // 4. Remove overlapping windows (greedy by score) — O(m²) but m is tiny
     windows.sort((a, b) => b.score - a.score);
     const kept: typeof windows = [];
     for (const w of windows) {
@@ -253,12 +225,11 @@ export class DetectionService {
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
-        // ── Step 1: Heuristic candidate extraction ──────────────────────────
         console.log("\n[Detection] ━━━ ETAPA 1: Análise heurística ━━━");
         const candidates = extractCandidates(
             transcript,
             config,
-            config.targetClips * 4, // send 4x more candidates than needed so LLM has room to pick
+            config.targetClips * 4,
         );
         console.log(
             `[Detection] ${candidates.length} candidato(s) passando para a IA\n`,
@@ -268,20 +239,16 @@ export class DetectionService {
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
-        // ── Step 2: LLM ranking — single call with all candidates ───────────
         console.log("[Detection] ━━━ ETAPA 2: Ranking pela IA ━━━");
 
         const allScored: ScoredSegment[] = [];
         let windowsAnalyzed = 0;
 
         try {
-            // Merge all candidate segments into one flat array (they already
-            // carry absolute timestamps from the original transcript).
-            // Sort by start time so the LLM sees a chronological narrative.
             const combined = candidates
                 .flatMap((c) => c.segments)
                 .sort((a, b) => a.start - b.start)
-                // De-duplicate: same segment may appear in overlapping candidates
+
                 .filter(
                     (seg, i, arr) => i === 0 || seg.start !== arr[i - 1].start,
                 );
@@ -292,7 +259,7 @@ export class DetectionService {
 
             if (combined.length > 0) {
                 windowsAnalyzed = 1;
-                // The LLM sees and returns ABSOLUTE timestamps — do NOT add any offset.
+
                 const scored =
                     await this.scoringStrategy!.scoreSegments(combined);
                 allScored.push(...scored);
@@ -302,7 +269,6 @@ export class DetectionService {
                 `[Detection] Total de segmentos brutos da IA: ${allScored.length}`,
             );
 
-            // ── Filter and Deduplicate ───────────────────────────────────────
             const boundsFiltered = allScored.filter(
                 (s) =>
                     Number.isFinite(s.startTime) &&
@@ -331,7 +297,6 @@ export class DetectionService {
                 `[Detection] Após filtro de duração: ${valid.length} segmento(s)`,
             );
 
-            // Deduplicate: remove segments starting within 5s of each other (keep highest score)
             const deduplicated: ScoredSegment[] = [];
             valid.sort((a, b) => b.score - a.score);
 
@@ -367,7 +332,6 @@ export class DetectionService {
 
             return { clips, meta: { windowsAnalyzed } };
         } catch (error) {
-            // Re-throw auth errors so CLI can show a specific message
             if (
                 typeof error === "object" &&
                 error !== null &&

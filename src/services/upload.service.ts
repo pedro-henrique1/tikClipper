@@ -1,9 +1,11 @@
 import fs from "fs/promises";
-import puppeteer from "puppeteer-extra";
+import vanillaPuppeteer from "puppeteer";
+import { addExtra } from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { logger } from "./logger.service.js";
 
-// @ts-ignore
+const puppeteer = addExtra(vanillaPuppeteer);
+
 puppeteer.use(StealthPlugin());
 
 export class UploadService {
@@ -18,7 +20,7 @@ export class UploadService {
         );
 
         const browser = await (puppeteer as any).launch({
-            headless: true, // Pode ser alterado para false para debug
+            headless: true,
             args: ["--no-sandbox", "--disable-setuid-sandbox"],
         });
 
@@ -26,7 +28,6 @@ export class UploadService {
             const page = await browser.newPage();
             await page.setViewport({ width: 1280, height: 720 });
 
-            // Carregar cookies
             const cookiesContent = await fs.readFile(cookiesPath, "utf-8");
             const cookies = JSON.parse(cookiesContent);
             await page.setCookie(...cookies);
@@ -36,9 +37,6 @@ export class UploadService {
                 waitUntil: "networkidle2",
             });
 
-            // Verificar se está logado (opcional, pode falhar se o seletor mudar)
-            // Se os cookies forem válidos, ele deve estar na página de upload.
-
             logger.info("Selecionando o arquivo de vídeo...");
             const fileInput = await page.waitForSelector('input[type="file"]');
             if (!fileInput)
@@ -46,8 +44,7 @@ export class UploadService {
             await fileInput.uploadFile(videoPath);
 
             logger.info("Aguardando o processamento do vídeo...");
-            // O TikTok leva um tempo para processar o vídeo antes de permitir postar.
-            // Vamos aguardar o seletor de input de legenda ou o box de info de upload.
+
             try {
                 await Promise.race([
                     page.waitForSelector('div[class*="upload-video-info"]', {
@@ -81,7 +78,7 @@ export class UploadService {
                 );
                 if (captionEditor) {
                     await captionEditor.click();
-                    // Limpar texto existente se houver
+
                     await page.keyboard.down("Control");
                     await page.keyboard.press("A");
                     await page.keyboard.up("Control");
@@ -91,8 +88,7 @@ export class UploadService {
             }
 
             logger.info("Publicando o vídeo...");
-            // O seletor do botão de postar pode mudar. Geralmente é um botão escrito "Post" ou "Publicar".
-            // Tentaremos encontrar por texto se possível, ou um seletor comum.
+
             const postButton =
                 (await page
                     .waitForSelector(
@@ -104,7 +100,6 @@ export class UploadService {
                     .waitForSelector("button.post-button", { timeout: 5000 })
                     .catch(() => null));
 
-            // Estratégia alternativa: buscar o botão por texto via evaluate
             if (!postButton) {
                 const found = await page.evaluate(() => {
                     const buttons = Array.from(

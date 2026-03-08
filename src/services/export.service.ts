@@ -25,7 +25,7 @@ export class ExportService {
 
         const tempDir = await mkdtemp(path.join(tmpdir(), "tikclipper-srt-"));
         const outputPaths: string[] = [];
-        // Truncate to 40 chars to avoid filesystem filename-length limits (255 bytes on Linux)
+
         const rawBase = path.basename(inputPath, path.extname(inputPath));
         const baseName = rawBase.length > 40 ? rawBase.slice(0, 40) : rawBase;
 
@@ -137,11 +137,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
         const COLORS = [
-            "&H00FFFF&", // Yellow
-            "&HFFFF00&", // Cyan
-            "&H00FF00&", // Lime
-            "&HFF00FF&", // Magenta
-            "&H0080FF&", // Orange
+            "&H00FFFF&",
+            "&HFFFF00&",
+            "&H00FF00&",
+            "&HFF00FF&",
+            "&H0080FF&",
         ];
 
         const events = segments

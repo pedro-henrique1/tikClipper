@@ -20,11 +20,7 @@ export class VideoService {
         return new Promise((resolve, reject) => {
             const duration = clip.endTime - clip.startTime;
 
-            // Build the filter_complex graph.
-            // All filters must go in complexFilter so named pads [bg]/[fg]
-            // are valid.  .videoFilters([...]) with labels generates invalid -vf.
             const filters: ffmpeg.FilterSpecification[] = [
-                // Background: upscale to fill 1080x1920 and blur
                 {
                     filter: "scale",
                     options: "1080:1920:force_original_aspect_ratio=increase",
@@ -43,14 +39,14 @@ export class VideoService {
                     inputs: "cropped_bg",
                     outputs: "bg",
                 },
-                // Foreground: fit within 1080 width (even height required by libx264)
+
                 {
                     filter: "scale",
                     options: "1080:trunc(ow/a/2)*2",
                     inputs: "0:v",
                     outputs: "fg",
                 },
-                // Overlay fg centred on bg
+
                 {
                     filter: "overlay",
                     options: "(W-w)/2:(H-h)/2",
@@ -59,13 +55,10 @@ export class VideoService {
                 },
             ];
 
-            // If we have subtitles, append as the last filter in the graph
             if (subtitlesPath) {
-                // Escape backslashes and colons for the ffmpeg filter graph.
-                // Do NOT wrap in single quotes — fluent-ffmpeg handles quoting.
                 const escaped = subtitlesPath
-                    .replace(/\\/g, "\\\\\\\\") // \ → \\
-                    .replace(/:/g, "\\\\:"); // : → \:
+                    .replace(/\\/g, "\\\\\\\\")
+                    .replace(/:/g, "\\\\:");
                 const isAss = subtitlesPath.toLowerCase().endsWith(".ass");
                 filters.push({
                     filter: "subtitles",

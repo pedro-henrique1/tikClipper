@@ -10,11 +10,9 @@ export class CaptionService {
     constructor() {
         const openRouterKey = process.env.OPEN_ROUTE;
 
-        // Define o modelo: Prioridade para CAPTION_MODEL, senão busca padrões
         this.modelName = process.env.CAPTION_MODEL || "gemini-2.0-flash-lite";
 
         if (this.modelName.includes("/") || openRouterKey) {
-            // Provavelmente OpenRouter
             this.openRouterClient = new OpenAI({
                 apiKey: openRouterKey || "",
                 baseURL: "https://openrouter.ai/api/v1",
