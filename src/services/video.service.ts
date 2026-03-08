@@ -61,16 +61,17 @@ export class VideoService {
 
             // If we have subtitles, append as the last filter in the graph
             if (subtitlesPath) {
+                // Escape backslashes and colons for the ffmpeg filter graph.
+                // Do NOT wrap in single quotes — fluent-ffmpeg handles quoting.
                 const escaped = subtitlesPath
-                    .replace(/\\/g, "\\\\")
-                    .replace(/'/g, "\\'")
-                    .replace(/:/g, "\\:");
+                    .replace(/\\/g, "\\\\\\\\") // \ → \\
+                    .replace(/:/g, "\\\\:"); // : → \:
                 const isAss = subtitlesPath.toLowerCase().endsWith(".ass");
                 filters.push({
-                    filter: isAss ? "subtitles" : "subtitles",
+                    filter: "subtitles",
                     options: isAss
-                        ? `'${escaped}'`
-                        : `'${escaped}':force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'`,
+                        ? escaped
+                        : `${escaped}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'`,
                     inputs: "overlaid",
                     outputs: "out",
                 });
@@ -80,8 +81,9 @@ export class VideoService {
                 .input(inputPath)
                 .setStartTime(clip.startTime)
                 .setDuration(duration)
-                .complexFilter(filters, "out")
+                .complexFilter(filters, "[out]")
                 .outputOptions([
+                    "-map 0:a?",
                     "-c:v libx264",
                     "-preset ultrafast",
                     "-crf 23",

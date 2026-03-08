@@ -246,7 +246,10 @@ export class TranscriptionService {
             "1",
         ];
         if (wordTimestamps) {
-            args.push("--split-on-word");
+            // --split-on-word alone still groups words into segments.
+            // -ml 1 forces each output line to be a single word so we
+            // get individual per-word timestamps for karaoke highlighting.
+            args.push("--split-on-word", "-ml", "1");
         }
 
         const segments = await new Promise<TranscriptSegment[]>(
