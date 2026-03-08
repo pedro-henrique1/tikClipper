@@ -127,7 +127,7 @@ function extractCandidates(
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-    console.log(
+    logger.debug(
         `[Heuristic] Scores: min=${min.toFixed(2)} max=${max.toFixed(2)} avg=${avg.toFixed(2)} | ${transcript.length} segmento(s)`,
     );
 
@@ -161,7 +161,7 @@ function extractCandidates(
     }
 
     if (windows.length === 0) {
-        console.log(
+        logger.debug(
             "[Heuristic] Nenhum candidato. Usando transcript completo.",
         );
         return [{ segments: transcript, hScore: 0 }];
@@ -176,9 +176,9 @@ function extractCandidates(
     }
 
     kept.sort((a, b) => a.start - b.start);
-    console.log(`[Heuristic] ${kept.length} candidato(s) selecionado(s):`);
+    logger.debug(`[Heuristic] ${kept.length} candidato(s) selecionado(s):`);
     kept.forEach((c, i) =>
-        console.log(
+        logger.debug(
             `[Heuristic]   #${i + 1} → ${c.start.toFixed(1)}s–${c.end.toFixed(1)}s (score: ${c.score.toFixed(3)})`,
         ),
     );
@@ -211,35 +211,35 @@ export class DetectionService {
         videoDuration: number,
         config: DetectionConfig,
     ): Promise<DetectionResult> {
-        console.log(
+        logger.debug(
             `[Detection] Config — minDuration: ${config.minDuration}s, maxDuration: ${config.maxDuration}s, targetClips: ${config.targetClips}`,
         );
-        console.log(
+        logger.debug(
             `[Detection] videoDuration: ${videoDuration.toFixed(2)}s | transcript segments: ${transcript.length}`,
         );
 
         if (!this.scoringStrategy) {
-            console.warn(
+            logger.warn(
                 "[Detection] Nenhuma estratégia de scoring configurada (OPEN_ROUTE não definido?).",
             );
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
-        console.log("\n[Detection] ━━━ ETAPA 1: Análise heurística ━━━");
+        logger.debug("[Detection] Etapa 1: Análise heurística");
         const candidates = extractCandidates(
             transcript,
             config,
             config.targetClips * 4,
         );
-        console.log(
-            `[Detection] ${candidates.length} candidato(s) passando para a IA\n`,
+        logger.debug(
+            `[Detection] ${candidates.length} candidato(s) passando para a IA`,
         );
 
         if (candidates.length === 0) {
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
-        console.log("[Detection] ━━━ ETAPA 2: Ranking pela IA ━━━");
+        logger.debug("[Detection] Etapa 2: Ranking pela IA");
 
         const allScored: ScoredSegment[] = [];
         let windowsAnalyzed = 0;
@@ -253,7 +253,7 @@ export class DetectionService {
                     (seg, i, arr) => i === 0 || seg.start !== arr[i - 1].start,
                 );
 
-            console.log(
+            logger.debug(
                 `[Detection] Enviando ${combined.length} segmento(s) para a IA (1 chamada)`,
             );
 
@@ -265,7 +265,7 @@ export class DetectionService {
                 allScored.push(...scored);
             }
 
-            console.log(
+            logger.debug(
                 `[Detection] Total de segmentos brutos da IA: ${allScored.length}`,
             );
 
@@ -277,7 +277,7 @@ export class DetectionService {
                     s.endTime > s.startTime &&
                     s.endTime <= videoDuration,
             );
-            console.log(
+            logger.debug(
                 `[Detection] Após filtro de bounds: ${boundsFiltered.length} segmento(s)`,
             );
 
@@ -287,13 +287,13 @@ export class DetectionService {
                     duration >= config.minDuration &&
                     duration <= config.maxDuration;
                 if (!ok) {
-                    console.log(
-                        `[Detection]   ✗ Fora do range de duração: ${s.startTime.toFixed(1)}s–${s.endTime.toFixed(1)}s (${duration.toFixed(1)}s)`,
+                    logger.debug(
+                        `[Detection] ✗ Fora do range de duração: ${s.startTime.toFixed(1)}s–${s.endTime.toFixed(1)}s (${duration.toFixed(1)}s)`,
                     );
                 }
                 return ok;
             });
-            console.log(
+            logger.debug(
                 `[Detection] Após filtro de duração: ${valid.length} segmento(s)`,
             );
 
@@ -309,7 +309,7 @@ export class DetectionService {
                 }
             }
 
-            console.log(
+            logger.debug(
                 `[Detection] ${deduplicated.length} segmento(s) único(s) encontrado(s).`,
             );
 

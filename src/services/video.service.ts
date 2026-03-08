@@ -3,6 +3,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { mkdir } from "fs/promises";
 import path from "path";
 import type { Clip, ExportConfig } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
 ffmpeg.setFfmpegPath((ffmpegStatic as unknown as string) ?? "");
 
@@ -86,7 +87,7 @@ export class VideoService {
                 ])
                 .output(outputPath)
                 .on("start", () => {
-                    console.log(
+                    logger.debug(
                         `[Video] Iniciando extração: ${path.basename(outputPath)}`,
                     );
                 })
@@ -99,9 +100,10 @@ export class VideoService {
                 })
                 .on("end", () => resolve(outputPath))
                 .on("error", (err, stdout, stderr) => {
-                    console.error(`[Video] Erro ffmpeg:`, err.message);
-                    if (stderr)
-                        console.error(`[Video] stderr:`, stderr.slice(-500));
+                    logger.error(
+                        { err: err.message, stderr: stderr?.slice(-500) },
+                        "[Video] Erro ffmpeg",
+                    );
                     reject(err);
                 })
                 .run();

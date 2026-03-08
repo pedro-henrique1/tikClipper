@@ -58,7 +58,7 @@ export class TranscriptionService {
             }
 
             const chunkDuration = duration / PARALLEL_CHUNKS;
-            console.log(
+            logger.debug(
                 `[Transcription] Dividindo ${duration.toFixed(0)}s em ${PARALLEL_CHUNKS} chunks de ~${chunkDuration.toFixed(0)}s cada`,
             );
 
@@ -88,7 +88,7 @@ export class TranscriptionService {
                 }),
             );
 
-            console.log(
+            logger.debug(
                 `[Transcription] ${PARALLEL_CHUNKS} chunks extraídos — iniciando whisper em paralelo...`,
             );
 
@@ -134,7 +134,7 @@ export class TranscriptionService {
                     Math.abs(seg.start - merged[idx - 1].start) > 0.5,
             );
 
-            console.log(
+            logger.debug(
                 `[Transcription] ${deduped.length} segmento(s) após merge dos ${PARALLEL_CHUNKS} chunks`,
             );
 

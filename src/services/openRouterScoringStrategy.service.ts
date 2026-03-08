@@ -5,6 +5,7 @@ import type {
     ScoringStrategy,
     TranscriptSegment,
 } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
 export class OpenRouterScoringStrategy implements ScoringStrategy {
     private client: OpenAI;
@@ -53,9 +54,8 @@ Segmentos:
 ${compactTranscript}
 `;
 
-        console.log(`[OpenRouter] Usando modelo: ${this.modelName}`);
-        console.log(
-            `[OpenRouter] Enviando ${transcript.length} segmento(s) para scoring`,
+        logger.debug(
+            `[OpenRouter] Usando modelo: ${this.modelName} | ${transcript.length} segmento(s)`,
         );
 
         try {
@@ -75,14 +75,14 @@ ${compactTranscript}
             });
 
             const choice = response.choices[0];
-            console.log(
+            logger.debug(
                 `[OpenRouter] finish_reason: ${choice.finish_reason} | content length: ${choice.message.content?.length ?? "null"}`,
             );
             const content = choice.message.content;
-            console.log(`[OpenRouter] Resposta bruta da IA: ${content}`);
+            logger.debug(`[OpenRouter] Resposta bruta da IA: ${content}`);
 
             if (!content) {
-                console.warn("[OpenRouter] IA retornou conteúdo vazio.");
+                logger.warn("[OpenRouter] IA retornou conteúdo vazio.");
                 return [];
             }
 
@@ -95,9 +95,9 @@ ${compactTranscript}
             try {
                 parsed = JSON.parse(jsonStr);
             } catch (err) {
-                console.error(
-                    "[OpenRouter] Falha ao dar parse no JSON:",
-                    jsonStr,
+                logger.error(
+                    { jsonStr },
+                    "[OpenRouter] Falha ao dar parse no JSON",
                 );
                 throw err;
             }
@@ -108,18 +108,10 @@ ${compactTranscript}
                     ? parsed
                     : parsed.highlights || parsed.clips || []);
 
-            console.log(
-                `[OpenRouter] Chaves do JSON recebido: ${Object.keys(parsed).join(", ")}`,
+            logger.debug(
+                { highlights },
+                `[OpenRouter] ${highlights.length} segmento(s) retornado(s) pela IA`,
             );
-            console.log(
-                `[OpenRouter] ${highlights.length} segmento(s) retornado(s) pela IA.`,
-            );
-            if (highlights.length > 0) {
-                console.log(
-                    "[OpenRouter] Segmentos brutos da IA:",
-                    JSON.stringify(highlights, null, 2),
-                );
-            }
 
             return highlights as ScoredSegment[];
         } catch (error) {
@@ -131,7 +123,7 @@ ${compactTranscript}
             ) {
                 throw error;
             }
-            console.error("[OpenRouter] Erro ao chamar a API:", error);
+            logger.error({ err: error }, "[OpenRouter] Erro ao chamar a API");
             return [];
         }
     }

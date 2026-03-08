@@ -39,6 +39,10 @@ export function registerCutCommand(program: Command): void {
             const debug: boolean = opts.debug ?? false;
             const quiet: boolean = opts.quiet ?? false;
 
+            if (debug) {
+                logger.level = "debug";
+            }
+
             const print = (...args: string[]) => {
                 if (!quiet) logger.info(args.join(" "));
             };
@@ -145,7 +149,6 @@ export function registerCutCommand(program: Command): void {
                         targetClips: DEFAULT_CLIP_CONFIG.targetClips,
                     },
                 );
-                logger.debug(result);
                 clips = result.clips;
                 detectionMeta = result.meta;
 
