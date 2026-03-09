@@ -68,6 +68,12 @@ export function startSpinner(text: string): Spinner {
     };
 }
 
+export function printStep(step: number, total: number, label: string): void {
+    const badge = chalk.bgCyan.black(` ${step}/${total} `);
+    console.log(`\n${badge}  ${chalk.bold.white(label)}`);
+    console.log(chalk.gray("  " + "─".repeat(50)));
+}
+
 export interface PipelineStats {
     videoDuration: number;
     transcriptSegments: number;

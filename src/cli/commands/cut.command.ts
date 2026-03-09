@@ -18,7 +18,12 @@ import { OpenRouterScoringStrategy } from "../../services/openRouterScoringStrat
 import { TranscriptionService } from "../../services/transcription.service.js";
 import { UploadService } from "../../services/upload.service.js";
 import { VideoService } from "../../services/video.service.js";
-import { printClipsTable, printStatsTable, startSpinner } from "../utils/ui.js";
+import {
+    printClipsTable,
+    printStatsTable,
+    printStep,
+    startSpinner,
+} from "../utils/ui.js";
 
 export function registerCutCommand(program: Command): void {
     program
@@ -39,29 +44,33 @@ export function registerCutCommand(program: Command): void {
             const debug: boolean = opts.debug ?? false;
             const quiet: boolean = opts.quiet ?? false;
 
-            if (debug) {
-                logger.level = "debug";
-            }
+            // Force log level — never let .env LOG_LEVEL pollute normal CLI output
+            logger.level = debug ? "debug" : "info";
 
             const print = (...args: string[]) => {
-                if (!quiet) logger.info(args.join(" "));
+                if (!quiet) console.log(args.join(" "));
             };
 
             const inputPath = path.resolve(process.cwd(), video);
             const fileName = path.basename(inputPath);
 
             if (!existsSync(inputPath)) {
-                logger.error(`❌ File not found: ${fileName}`);
-                if (debug) logger.debug(`   Path: ${inputPath}`);
+                console.error(chalk.red(`❌ File not found: ${fileName}`));
+                if (debug) console.error(chalk.gray(`   Path: ${inputPath}`));
                 process.exit(1);
             }
 
             if (opts.upload && !opts.cookies) {
-                logger.error("--upload requires --cookies <path>");
+                console.error(chalk.red("--upload requires --cookies <path>"));
                 process.exit(1);
             }
 
-            print(chalk.cyan(`\n🎬 Processing: ${chalk.bold(fileName)}\n`));
+            const shortName =
+                fileName.length > 50 ? fileName.slice(0, 47) + "..." : fileName;
+            if (!quiet)
+                console.log(
+                    `\n  ${chalk.dim("\u25b6")}  ${chalk.bold.white(shortName)}\n`,
+                );
             if (debug) logger.debug(`[CLI] Full input path: ${inputPath}`);
 
             const startedAt = Date.now();
@@ -69,23 +78,38 @@ export function registerCutCommand(program: Command): void {
             const videoService = new VideoService();
             const { duration } = await videoService.getMetadata(inputPath);
 
-            print(chalk.cyan("🎧 Extracting audio..."));
+            if (!quiet) printStep(1, 4, "Transcribing audio");
 
             const transcriptionBar = new cliProgress.SingleBar(
                 {
                     clearOnComplete: true,
                     hideCursor: true,
-                    format:
-                        "  " +
-                        chalk.cyan("Transcribing") +
-                        " " +
-                        chalk.cyan("{bar}") +
-                        " {percentage}%" +
-                        chalk.gray(" | ETA: {eta_formatted}"),
-                    barCompleteChar: "▓",
-                    barIncompleteChar: "░",
-                    barsize: 30,
-                    etaBuffer: 10,
+                    format: (options, params, payload) => {
+                        const m = Math.floor(params.value / 60);
+                        const s = Math.floor(params.value % 60);
+                        const tm = Math.floor(params.total / 60);
+                        const ts = Math.floor(params.total % 60);
+
+                        const val = `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+                        const tot = `${tm.toString().padStart(2, "0")}:${ts.toString().padStart(2, "0")}`;
+
+                        const bar =
+                            options.barCompleteChar!.repeat(
+                                Math.round(params.progress * options.barsize!),
+                            ) +
+                            options.barIncompleteChar!.repeat(
+                                options.barsize! -
+                                    Math.round(
+                                        params.progress * options.barsize!,
+                                    ),
+                            );
+
+                        return `  ${chalk.cyan(bar)}  ${chalk.bold.white(Math.round(params.progress * 100) + "%")}  ${chalk.gray(val + " / " + tot)}`;
+                    },
+                    barCompleteChar: "\u2588",
+                    barIncompleteChar: "\u2591",
+                    barsize: 28,
+                    forceRedraw: true,
                 },
                 cliProgress.Presets.shades_classic,
             );
@@ -121,8 +145,11 @@ export function registerCutCommand(program: Command): void {
                 );
             } catch (err) {
                 if (barStarted) transcriptionBar.stop();
-                logger.error("\n❌ Transcription failed");
-                logger.error({ err }, "cut: transcription error");
+                console.error(
+                    chalk.red("\n❌ Transcription failed:"),
+                    err instanceof Error ? err.message : err,
+                );
+                logger.debug({ err }, "cut: transcription error");
                 process.exit(1);
             }
 
@@ -132,11 +159,11 @@ export function registerCutCommand(program: Command): void {
                 : undefined;
             const detection = new DetectionService(scoring);
 
+            if (!quiet) printStep(2, 4, "Analyzing best moments with AI");
+
             const spin2 = quiet
                 ? null
-                : startSpinner(
-                      chalk.magenta("🧠 Analyzing best moments with AI…"),
-                  );
+                : startSpinner(chalk.cyan("  Sending to AI model..."));
             let clips;
             let detectionMeta;
             try {
@@ -154,15 +181,16 @@ export function registerCutCommand(program: Command): void {
 
                 if (clips.length === 0) {
                     spin2?.fail(
-                        chalk.red("No clips detected — check the video"),
+                        chalk.red("  No viral moments found in this video"),
                     );
-                    if (!spin2) logger.error("❌ No clips detected");
+                    if (!spin2)
+                        console.error(chalk.red("\u274c No clips detected"));
                     process.exit(1);
                 }
 
                 spin2?.succeed(
                     chalk.green(
-                        `✅ ${chalk.bold(clips.length)} clip(s) detected`,
+                        `  Found ${chalk.bold(clips.length)} viral clip(s)`,
                     ),
                 );
             } catch (err) {
@@ -174,21 +202,27 @@ export function registerCutCommand(program: Command): void {
 
                 if (is401) {
                     spin2?.fail(chalk.red("OpenRouter API key invalid (401)"));
-                    logger.warn("\n  Check OPEN_ROUTE in your .env");
-                    logger.warn(
-                        "  Get your key at → https://openrouter.ai/settings/keys",
+                    console.log(
+                        chalk.yellow("\n  Check OPEN_ROUTE in your .env"),
+                    );
+                    console.log(
+                        chalk.gray(
+                            "  Get your key at → https://openrouter.ai/settings/keys",
+                        ),
                     );
                 } else {
                     spin2?.fail(chalk.red("AI scoring failed"));
-                    logger.error({ err }, "cut: detection error");
+                    if (debug) console.error(err);
                 }
                 process.exit(1);
             }
 
+            if (!quiet) printStep(3, 4, "Generating captions");
+
             const spin3 = quiet
                 ? null
                 : startSpinner(
-                      chalk.magenta("✨ Generating viral captions with AI…"),
+                      chalk.cyan("  Crafting viral titles with AI..."),
                   );
             const captionService = new CaptionService();
             for (const clip of clips) {
@@ -198,7 +232,7 @@ export function registerCutCommand(program: Command): void {
                         .catch(() => undefined);
                 }
             }
-            spin3?.succeed(chalk.green("✅ Captions generated"));
+            spin3?.succeed(chalk.green("  Captions ready"));
 
             const rawVideoName = path.basename(
                 inputPath,
@@ -217,7 +251,7 @@ export function registerCutCommand(program: Command): void {
                 "utf-8",
             );
 
-            print(chalk.cyan(`\n✂  Exporting ${clips.length} clip(s)...\n`));
+            if (!quiet) printStep(4, 4, `Exporting ${clips.length} clip(s)`);
 
             const totalTicks = clips.length * 100;
             const singleBar = new cliProgress.SingleBar(
@@ -226,14 +260,15 @@ export function registerCutCommand(program: Command): void {
                     hideCursor: true,
                     format:
                         "  " +
-                        chalk.cyan("Exporting") +
-                        "  " +
                         chalk.cyan("{bar}") +
-                        " {percentage}%" +
-                        chalk.gray(" | clip {current}/{total_clips}"),
-                    barCompleteChar: "▓",
-                    barIncompleteChar: "░",
-                    barsize: 30,
+                        "  " +
+                        chalk.bold.white("{percentage}%") +
+                        chalk.gray("  clip ") +
+                        chalk.white("{current}") +
+                        chalk.gray("/{total_clips}"),
+                    barCompleteChar: "\u2588",
+                    barIncompleteChar: "\u2591",
+                    barsize: 28,
                 },
                 cliProgress.Presets.shades_classic,
             );
@@ -280,14 +315,16 @@ export function registerCutCommand(program: Command): void {
                 }
             } catch (err) {
                 if (!quiet) singleBar.stop();
-                logger.error(
-                    `\n❌ Export error: ${err instanceof Error ? err.message : err}`,
+                console.error(
+                    chalk.red(
+                        `\n❌ Export error: ${err instanceof Error ? err.message : err}`,
+                    ),
                 );
                 process.exit(1);
             }
 
             if (!quiet) singleBar.stop();
-            logger.info("");
+            console.log("");
 
             if (opts.upload && opts.cookies) {
                 const uploadService = new UploadService();
@@ -323,7 +360,7 @@ export function registerCutCommand(program: Command): void {
                                 `❌ Upload failed: ${path.basename(clipPath)}`,
                             ),
                         );
-                        logger.warn({ err }, "cut: upload error");
+                        if (debug) console.error(err);
                     }
                 }
             }
@@ -349,14 +386,15 @@ export function registerCutCommand(program: Command): void {
 
             printClipsTable(clips);
 
-            logger.info(
-                chalk.green(`\n✅ ${outputPaths.length} clip(s) exported:`),
-            );
-            outputPaths.forEach((p) =>
-                logger.info(chalk.gray(`  • ${path.basename(p)}`)),
-            );
-
-            const totalSec = (elapsedMs / 1000).toFixed(1);
-            logger.info(chalk.green(`\n⏱  Total time: ${totalSec}s\n`));
+            if (!quiet) {
+                console.log(
+                    chalk.green(`\n✅ ${outputPaths.length} clip(s) exported:`),
+                );
+                outputPaths.forEach((p) =>
+                    console.log(chalk.gray(`  • ${path.basename(p)}`)),
+                );
+                const totalSec = (elapsedMs / 1000).toFixed(1);
+                console.log(chalk.green(`\n⏱  Total time: ${totalSec}s\n`));
+            }
         });
 }
