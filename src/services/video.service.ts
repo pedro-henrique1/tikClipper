@@ -1,82 +1,153 @@
-import ffmpegStatic from 'ffmpeg-static';
-import ffmpeg from 'fluent-ffmpeg';
-import { mkdir } from 'fs/promises';
-import path from 'path';
-import type { Clip, ExportConfig } from '../types/index.js';
+import ffmpegStatic from "ffmpeg-static";
+import ffmpeg from "fluent-ffmpeg";
+import { mkdir } from "fs/promises";
+import path from "path";
+import type { Clip, ExportConfig } from "../types/index.js";
+import { logger } from "./logger.service.js";
 
-ffmpeg.setFfmpegPath(ffmpegStatic ?? '');
+ffmpeg.setFfmpegPath((ffmpegStatic as unknown as string) ?? "");
 
 export class VideoService {
-  async extractClip(
-    inputPath: string,
-    outputPath: string,
-    clip: Clip,
-    config: ExportConfig,
-    subtitlesPath?: string
-  ): Promise<string> {
-    await mkdir(path.dirname(outputPath), { recursive: true });
+    async extractClip(
+        inputPath: string,
+        outputPath: string,
+        clip: Clip,
+        config: ExportConfig,
+        subtitlesPath?: string,
+        onProgress?: (percent: number) => void,
+    ): Promise<string> {
+        await mkdir(path.dirname(outputPath), { recursive: true });
 
-    return new Promise((resolve, reject) => {
-      let command = ffmpeg(inputPath)
-        .setStartTime(clip.startTime)
-        .setDuration(clip.endTime - clip.startTime)
-        .outputOptions([
-          '-c:v libx264',
-          '-preset fast',
-          '-crf 23',
-          '-c:a aac',
-          '-b:a 128k',
-        ])
-        .size(`${config.width}x${config.height}`)
-        .autopad();
+        return new Promise((resolve, reject) => {
+            const duration = clip.endTime - clip.startTime;
 
-      if (subtitlesPath) {
-        const escaped = subtitlesPath.replace(/'/g, "\\'");
-        const style =
-          "force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=20'";
-        command = command.videoFilter(`subtitles='${escaped}':${style}`);
-      }
+            const filters: ffmpeg.FilterSpecification[] = [
+                {
+                    filter: "scale",
+                    options: "1080:1920:force_original_aspect_ratio=increase",
+                    inputs: "0:v",
+                    outputs: "scaled_bg",
+                },
+                {
+                    filter: "crop",
+                    options: "1080:1920",
+                    inputs: "scaled_bg",
+                    outputs: "cropped_bg",
+                },
+                {
+                    filter: "boxblur",
+                    options: "20:10",
+                    inputs: "cropped_bg",
+                    outputs: "bg",
+                },
 
-      command
-        .output(outputPath)
-        .on('end', () => resolve(outputPath))
-        .on('error', reject)
-        .run();
-    });
-  }
+                {
+                    filter: "scale",
+                    options: "1080:trunc(ow/a/2)*2",
+                    inputs: "0:v",
+                    outputs: "fg",
+                },
 
-  async extractAudioToWav(inputPath: string, outputPath: string): Promise<string> {
-    await mkdir(path.dirname(outputPath), { recursive: true });
+                {
+                    filter: "overlay",
+                    options: "(W-w)/2:(H-h)/2",
+                    inputs: ["bg", "fg"],
+                    outputs: subtitlesPath ? "overlaid" : "out",
+                },
+            ];
 
-    return new Promise((resolve, reject) => {
-      ffmpeg(inputPath)
-        .noVideo()
-        .audioCodec('pcm_s16le')
-        .audioFrequency(16000)
-        .audioChannels(1)
-        .output(outputPath)
-        .on('end', () => resolve(outputPath))
-        .on('error', reject)
-        .run();
-    });
-  }
+            if (subtitlesPath) {
+                const escaped = subtitlesPath
+                    .replace(/\\/g, "\\\\\\\\")
+                    .replace(/:/g, "\\\\:");
+                const isAss = subtitlesPath.toLowerCase().endsWith(".ass");
+                filters.push({
+                    filter: "subtitles",
+                    options: isAss
+                        ? escaped
+                        : `${escaped}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,Outline=2,Shadow=1,MarginV=20'`,
+                    inputs: "overlaid",
+                    outputs: "out",
+                });
+            }
 
-
-  async getMetadata(inputPath: string): Promise<{
-    duration: number;
-    width: number;
-    height: number;
-  }> {
-    return new Promise((resolve, reject) => {
-      ffmpeg.ffprobe(inputPath, (err, metadata) => {
-        if (err) return reject(err);
-        const video = metadata.streams.find((s) => s.codec_type === 'video');
-        resolve({
-          duration: metadata.format.duration ?? 0,
-          width: video?.width ?? 0,
-          height: video?.height ?? 0,
+            ffmpeg()
+                .input(inputPath)
+                .setStartTime(clip.startTime)
+                .setDuration(duration)
+                .complexFilter(filters, "[out]")
+                .outputOptions([
+                    "-map 0:a?",
+                    "-c:v libx264",
+                    "-preset ultrafast",
+                    "-crf 23",
+                    "-c:a aac",
+                    "-b:a 128k",
+                    "-threads 0",
+                ])
+                .output(outputPath)
+                .on("start", () => {
+                    logger.debug(
+                        `[Video] Iniciando extração: ${path.basename(outputPath)}`,
+                    );
+                })
+                .on("progress", (progress) => {
+                    if (progress.percent !== undefined && onProgress) {
+                        onProgress(
+                            Math.max(0, Math.min(100, progress.percent)),
+                        );
+                    }
+                })
+                .on("end", () => resolve(outputPath))
+                .on("error", (err, stdout, stderr) => {
+                    logger.error(
+                        { err: err.message, stderr: stderr?.slice(-500) },
+                        "[Video] Erro ffmpeg",
+                    );
+                    reject(err);
+                })
+                .run();
         });
-      });
-    });
-  }
+    }
+
+    async extractAudioToWav(
+        inputPath: string,
+        outputPath: string,
+    ): Promise<string> {
+        await mkdir(path.dirname(outputPath), { recursive: true });
+
+        return new Promise((resolve, reject) => {
+            ffmpeg(inputPath)
+                .noVideo()
+                .audioCodec("pcm_s16le")
+                .audioFrequency(16000)
+                .audioChannels(1)
+                .addOption("-threads 0")
+                .addOption("-map 0:a:0")
+                .output(outputPath)
+                .on("end", () => resolve(outputPath))
+                .on("error", reject)
+                .run();
+        });
+    }
+
+    async getMetadata(inputPath: string): Promise<{
+        duration: number;
+        width: number;
+        height: number;
+    }> {
+        return new Promise((resolve, reject) => {
+            ffmpeg.ffprobe(inputPath, (err, metadata) => {
+                if (err) return reject(err);
+                const video = metadata.streams.find(
+                    (s) => s.codec_type === "video",
+                );
+                resolve({
+                    duration: metadata.format.duration ?? 0,
+                    width: video?.width ?? 0,
+                    height: video?.height ?? 0,
+                });
+            });
+        });
+    }
 }

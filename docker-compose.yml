@@ -1,0 +1,39 @@
+services:
+  # tikclipper:
+  #   build: .
+  #   volumes:
+  #     - ./output:/app/output
+  #     - ./inputs:/app/inputs
+  #     - ./models:/app/whisper.cpp/models
+  #   env_file:
+  #     - .env
+  #   stdin_open: true
+  #   tty: true
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis:/data
+
+  rabbitmq:   
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ./rabbitmq:/var/lib/rabbitmq
+
+
+  worker:
+    build: .
+    command: npm run worker
+    depends_on:
+      - rabbitmq
+      - redis
+    volumes:
+      - ./rabbitmq:/videos
+  
+
+  

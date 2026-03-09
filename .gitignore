@@ -5,3 +5,7 @@ output/
 .env.local
 *.log
 .DS_Store
+rabbitmq/
+redis/
+cookies.json
+stealth-check.png
