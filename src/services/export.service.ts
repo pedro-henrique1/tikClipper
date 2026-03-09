@@ -8,6 +8,8 @@ import type {
 } from "../types/index.js";
 import { VideoService } from "./video.service.js";
 
+export type ClipProgressCallback = (clipIndex: number, percent: number) => void;
+
 export class ExportService {
     private videoService = new VideoService();
 
@@ -16,16 +18,20 @@ export class ExportService {
         clips: Clip[],
         transcript: TranscriptSegment[],
         config: PipelineConfig,
+        onProgress?: ClipProgressCallback,
     ): Promise<string[]> {
         const { outputDir, exportConfig } = config;
         await mkdir(outputDir, { recursive: true });
 
         const tempDir = await mkdtemp(path.join(tmpdir(), "tikclipper-srt-"));
         const outputPaths: string[] = [];
-        const baseName = path.basename(inputPath, path.extname(inputPath));
+
+        const rawBase = path.basename(inputPath, path.extname(inputPath));
+        const baseName = rawBase.length > 40 ? rawBase.slice(0, 40) : rawBase;
 
         try {
-            const exportPromises = clips.map(async (clip, i) => {
+            for (let i = 0; i < clips.length; i++) {
+                const clip = clips[i];
                 const outputPath = path.join(
                     outputDir,
                     `${baseName}_clip_${i + 1}.${exportConfig.format}`,
@@ -58,12 +64,10 @@ export class ExportService {
                     clip,
                     exportConfig,
                     subtitlePath,
+                    (pct) => onProgress?.(i, pct),
                 );
-                return outputPath;
-            });
-
-            const results = await Promise.all(exportPromises);
-            outputPaths.push(...results);
+                outputPaths.push(outputPath);
+            }
 
             return outputPaths;
         } finally {
@@ -133,11 +137,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
         const COLORS = [
-            "&H00FFFF&", // Yellow
-            "&HFFFF00&", // Cyan
-            "&H00FF00&", // Lime
-            "&HFF00FF&", // Magenta
-            "&H0080FF&", // Orange
+            "&H00FFFF&",
+            "&HFFFF00&",
+            "&H00FF00&",
+            "&HFF00FF&",
+            "&H0080FF&",
         ];
 
         const events = segments
@@ -175,7 +179,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     private formatAssTime(seconds: number): string {
         const totalMs = Math.max(0, Math.round(seconds * 1000));
-        const ms = Math.floor((totalMs % 1000) / 10); // ASS uses centiseconds
+        const ms = Math.floor((totalMs % 1000) / 10);
         const totalSeconds = Math.floor(totalMs / 1000);
         const s = totalSeconds % 60;
         const totalMinutes = Math.floor(totalSeconds / 60);
