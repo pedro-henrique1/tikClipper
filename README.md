@@ -203,8 +203,8 @@ src/
 - [x] Upload automático para **TikTok** via Puppeteer
 - [x] Flags `--debug` e `--quiet` para controle de verbosidade
 - [x] Métricas de análise no resumo final
-- [ ] Fila de processamento com **BullMQ**
-- [ ] Suporte a múltiplas fontes (URL, YouTube, etc.)
+- [x] Download automatique de vídeos do youtube
+- [ ] Fila de processamento com **rabbitmq**
 
 ---
 

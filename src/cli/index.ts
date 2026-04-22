@@ -10,6 +10,7 @@ import { registerAnalyzeCommand } from "./commands/analyze.command.js";
 import { registerCutCommand } from "./commands/cut.command.js";
 import { registerRenderCommand } from "./commands/render.command.js";
 import { registerStatsCommand } from "./commands/stats.command.js";
+import { registerDownloadCommand } from "./commands/download.command.js";
 import { printBanner } from "./utils/ui.js";
 
 function handleExit(signal: "SIGINT" | "SIGTERM"): void {
@@ -37,5 +38,6 @@ registerAnalyzeCommand(program);
 registerCutCommand(program);
 registerRenderCommand(program);
 registerStatsCommand(program);
+registerDownloadCommand(program);
 
 program.parse(process.argv);
