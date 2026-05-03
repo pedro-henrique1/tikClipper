@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import youtubeDl from "youtube-dl-exec";
+import ffmpegPath from "ffmpeg-static";
 
 export class DownloadService {
 
@@ -24,6 +25,8 @@ export class DownloadService {
             output: outputTemplate,
             noCheckCertificates: true,
             noWarnings: true,
+            ffmpegLocation: ffmpegPath || undefined,
+            mergeOutputFormat: "mp4",
             format: "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         });
     }
