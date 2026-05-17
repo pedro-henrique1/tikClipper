@@ -31,7 +31,7 @@ export function registerCutCommand(program: Command): void {
         .description(
             "Pipeline completo: transcrever → analisar → exportar clips.",
         )
-        .option("--karaoke", "habilitar karaoke (timestamps por palavra)")
+        .option("--no-karaoke", "desabilitar legendas animadas (por padrão o karaoke é ativo)")
         .option(
             "--upload",
             "fazer upload automático para o TikTok após exportar",
@@ -44,7 +44,6 @@ export function registerCutCommand(program: Command): void {
             const debug: boolean = opts.debug ?? false;
             const quiet: boolean = opts.quiet ?? false;
 
-            // Force log level — never let .env LOG_LEVEL pollute normal CLI output
             logger.level = debug ? "debug" : "info";
 
             const print = (...args: string[]) => {
@@ -99,9 +98,9 @@ export function registerCutCommand(program: Command): void {
                             ) +
                             options.barIncompleteChar!.repeat(
                                 options.barsize! -
-                                    Math.round(
-                                        params.progress * options.barsize!,
-                                    ),
+                                Math.round(
+                                    params.progress * options.barsize!,
+                                ),
                             );
 
                         return `  ${chalk.cyan(bar)}  ${chalk.bold.white(Math.round(params.progress * 100) + "%")}  ${chalk.gray(val + " / " + tot)}`;
@@ -121,7 +120,7 @@ export function registerCutCommand(program: Command): void {
             try {
                 transcript = await transcriptionService.transcribe(
                     inputPath,
-                    opts.karaoke ?? false,
+                    opts.karaoke ?? true,
                     (current) => {
                         if (quiet) return;
                         if (!barStarted) {
@@ -222,8 +221,8 @@ export function registerCutCommand(program: Command): void {
             const spin3 = quiet
                 ? null
                 : startSpinner(
-                      chalk.cyan("  Crafting viral titles with AI..."),
-                  );
+                    chalk.cyan("  Crafting viral titles with AI..."),
+                );
             const captionService = new CaptionService();
             for (const clip of clips) {
                 if (clip.transcript) {
@@ -288,7 +287,7 @@ export function registerCutCommand(program: Command): void {
                 outputPaths = await exportService.exportClips(
                     inputPath,
                     clips,
-                    transcript,
+                    opts.karaoke ? transcript : [],
                     {
                         inputPath,
                         outputDir,
@@ -337,17 +336,17 @@ export function registerCutCommand(program: Command): void {
                     const spin = quiet
                         ? null
                         : startSpinner(
-                              chalk.cyan(
-                                  `📤 Uploading ${path.basename(clipPath)}…`,
-                              ),
-                          );
+                            chalk.cyan(
+                                `📤 Uploading ${path.basename(clipPath)}…`,
+                            ),
+                        );
                     try {
                         const clipIdx = outputPaths.indexOf(clipPath);
                         await uploadService.uploadToTikTok(
                             clipPath,
                             cookiesPath,
                             (opts.caption as string | undefined) ??
-                                clips[clipIdx]?.caption,
+                            clips[clipIdx]?.caption,
                         );
                         spin?.succeed(
                             chalk.green(

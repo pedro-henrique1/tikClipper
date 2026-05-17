@@ -1,12 +1,12 @@
 import ffmpegStatic from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 import ffmpeg from "fluent-ffmpeg";
 import { mkdir } from "fs/promises";
 import path from "path";
 import type { Clip, ExportConfig } from "../types/index.js";
 import { logger } from "./logger.service.js";
-
 ffmpeg.setFfmpegPath((ffmpegStatic as unknown as string) ?? "");
-
+ffmpeg.setFfprobePath(ffprobeStatic.path);
 export class VideoService {
     async extractClip(
         inputPath: string,
