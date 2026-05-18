@@ -204,7 +204,7 @@ src/
 - [x] Flags `--debug` e `--quiet` para controle de verbosidade
 - [x] Métricas de análise no resumo final
 - [x] Download automatique de vídeos do youtube
-- [ ] Fila de processamento com **rabbitmq**
+- [x] Fila de processamento com **rabbitmq**
 
 ---
 

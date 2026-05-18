@@ -11,6 +11,9 @@ import { registerCutCommand } from "./commands/cut.command.js";
 import { registerRenderCommand } from "./commands/render.command.js";
 import { registerStatsCommand } from "./commands/stats.command.js";
 import { registerDownloadCommand } from "./commands/download.command.js";
+import { registerEnqueueCommand } from "./commands/enqueue.command.js";
+import { registerQueueStatusCommand } from "./commands/queue-status.command.js";
+import { registerJobStatusCommand } from "./commands/job-status.command.js";
 import { printBanner } from "./utils/ui.js";
 
 function handleExit(signal: "SIGINT" | "SIGTERM"): void {
@@ -39,5 +42,8 @@ registerCutCommand(program);
 registerRenderCommand(program);
 registerStatsCommand(program);
 registerDownloadCommand(program);
+registerEnqueueCommand(program);
+registerQueueStatusCommand(program);
+registerJobStatusCommand(program);
 
 program.parse(process.argv);
