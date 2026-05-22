@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import chalkAnimation from "chalk-animation";
 import cliProgress from "cli-progress";
 import type { Command } from "commander";
 import "dotenv/config";
@@ -19,6 +20,7 @@ import { TranscriptionService } from "../../services/transcription.service.js";
 import { UploadService } from "../../services/upload.service.js";
 import { VideoService } from "../../services/video.service.js";
 import {
+    createProgressBar,
     printClipsTable,
     printStatsTable,
     printStep,
@@ -40,6 +42,13 @@ export function registerCutCommand(program: Command): void {
         .option("--caption <text>", "legenda para o upload")
         .option("--debug", "exibir logs internos detalhados")
         .option("--quiet", "suprimir output; exibir apenas resultado final")
+        .hook("preAction", (thisCommand) => {
+            const opts = thisCommand.opts();
+            if (opts.upload && !opts.cookies) {
+                console.error(chalk.red("Erro: --upload requires --cookies <path>"));
+                process.exit(1);
+            }
+        })
         .action(async (video: string, opts) => {
             const debug: boolean = opts.debug ?? false;
             const quiet: boolean = opts.quiet ?? false;
@@ -56,11 +65,6 @@ export function registerCutCommand(program: Command): void {
             if (!existsSync(inputPath)) {
                 console.error(chalk.red(`❌ File not found: ${fileName}`));
                 if (debug) console.error(chalk.gray(`   Path: ${inputPath}`));
-                process.exit(1);
-            }
-
-            if (opts.upload && !opts.cookies) {
-                console.error(chalk.red("--upload requires --cookies <path>"));
                 process.exit(1);
             }
 
@@ -253,23 +257,14 @@ export function registerCutCommand(program: Command): void {
             if (!quiet) printStep(4, 4, `Exporting ${clips.length} clip(s)`);
 
             const totalTicks = clips.length * 100;
-            const singleBar = new cliProgress.SingleBar(
-                {
-                    clearOnComplete: false,
-                    hideCursor: true,
-                    format:
-                        "  " +
-                        chalk.cyan("{bar}") +
-                        "  " +
-                        chalk.bold.white("{percentage}%") +
-                        chalk.gray("  clip ") +
-                        chalk.white("{current}") +
-                        chalk.gray("/{total_clips}"),
-                    barCompleteChar: "\u2588",
-                    barIncompleteChar: "\u2591",
-                    barsize: 28,
-                },
-                cliProgress.Presets.shades_classic,
+            const singleBar = createProgressBar(
+                "  " +
+                    chalk.cyan("{bar}") +
+                    "  " +
+                    chalk.bold.white("{percentage}%") +
+                    chalk.gray("  clip ") +
+                    chalk.white("{current}") +
+                    chalk.gray("/{total_clips}")
             );
 
             const clipProgress = new Array(clips.length).fill(0);
@@ -394,6 +389,9 @@ export function registerCutCommand(program: Command): void {
                 );
                 const totalSec = (elapsedMs / 1000).toFixed(1);
                 console.log(chalk.green(`\n⏱  Total time: ${totalSec}s\n`));
+
+                const anim = chalkAnimation.rainbow('✨ Processamento concluído com sucesso!');
+                setTimeout(() => anim.stop(), 3000);
             }
         });
 }

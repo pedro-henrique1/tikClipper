@@ -1,9 +1,10 @@
 import boxen from "boxen";
 import chalk from "chalk";
+import cliProgress from "cli-progress";
 import gradient from "gradient-string";
 import ora, { type Ora } from "ora";
 import type { Clip } from "../../types/index.js";
-import { buildBox } from "./table.js";
+import { padEnd, visibleLength } from "./table.js";
 
 export function printBanner(): void {
     const asciiArt = [
@@ -105,6 +106,23 @@ function fmtDuration(seconds: number): string {
     return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+export function createProgressBar(formatStr?: string) {
+    return new cliProgress.SingleBar(
+        {
+            clearOnComplete: true,
+            hideCursor: true,
+            format:
+                formatStr ||
+                `  ${chalk.cyan("{bar}")}  ${chalk.bold.white("{percentage}%")}  ${chalk.gray("{value}/{total}")}`,
+            barCompleteChar: "\u2588",
+            barIncompleteChar: "\u2591",
+            barsize: 28,
+            forceRedraw: true,
+        },
+        cliProgress.Presets.shades_classic,
+    );
+}
+
 export function printStatsTable(stats: PipelineStats): void {
     const avgClipTime =
         stats.clipsDetected > 0 ? stats.totalClipTime / stats.clipsDetected : 0;
@@ -164,8 +182,26 @@ export function printStatsTable(stats: PipelineStats): void {
         },
     );
 
-    const box = buildBox("📊 Analysis Summary", rows);
-    console.log("\n" + box.map((l) => chalk.cyan(l)).join("\n") + "\n");
+    const maxLabelLen = Math.max(...rows.map((r) => visibleLength(r.label)));
+    const content = rows
+        .map(
+            (r) =>
+                `${padEnd(r.label, maxLabelLen + 2)} │ ${chalk.bold.white(r.value)}`,
+        )
+        .join("\n");
+
+    console.log(
+        "\n" +
+            boxen(content, {
+                padding: 1,
+                margin: { top: 1, bottom: 1 },
+                borderStyle: "round",
+                borderColor: "cyan",
+                title: chalk.cyan.bold(" 📊 Analysis Summary "),
+                titleAlignment: "center",
+            }) +
+            "\n",
+    );
 }
 
 export function printClipsTable(clips: Clip[]): void {
