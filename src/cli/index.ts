@@ -14,6 +14,7 @@ import { registerDownloadCommand } from "./commands/download.command.js";
 import { registerEnqueueCommand } from "./commands/enqueue.command.js";
 import { registerQueueStatusCommand } from "./commands/queue-status.command.js";
 import { registerJobStatusCommand } from "./commands/job-status.command.js";
+import { registerCancelJobCommand } from "./commands/cancel-job.command.js";
 import { printBanner } from "./utils/ui.js";
 
 function handleExit(signal: "SIGINT" | "SIGTERM"): void {
@@ -45,5 +46,6 @@ registerDownloadCommand(program);
 registerEnqueueCommand(program);
 registerQueueStatusCommand(program);
 registerJobStatusCommand(program);
+registerCancelJobCommand(program);
 
 program.parse(process.argv);

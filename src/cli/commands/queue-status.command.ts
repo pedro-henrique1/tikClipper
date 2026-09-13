@@ -46,13 +46,56 @@ export function registerQueueStatusCommand(program: Command): void {
                         const status = await rabbitmq.getQueueStatus(queueName);
                         const jobs = await redis.getAllJobs();
 
+                        // 1. Auto-cleanup para tarefas travadas/antigas
+                        for (const job of jobs) {
+                            let isStale = false;
+                            let staleReason = '';
+
+                            if (job.status === 'PENDING') {
+                                // Se pendente há mais de 5 minutos e RabbitMQ sem mensagens na fila
+                                const isOldPending = (Date.now() - (job.updatedAt || job.createdAt || 0)) > 5 * 60 * 1000;
+                                if (isOldPending && status.messageCount === 0) {
+                                    isStale = true;
+                                    staleReason = 'Tarefa expirada: não encontrada na fila do RabbitMQ';
+                                }
+                            } else if (job.status === 'PROCESSING') {
+                                // Se processando há mais de 30 minutos sem nenhuma atualização
+                                const isOldProcessing = (Date.now() - (job.updatedAt || 0)) > 30 * 60 * 1000;
+                                if (isOldProcessing) {
+                                    isStale = true;
+                                    staleReason = 'Tarefa expirada: sem resposta do worker por mais de 30 minutos';
+                                }
+                            }
+
+                            if (isStale) {
+                                job.status = 'FAILED';
+                                job.error = staleReason;
+                                job.completedAt = Date.now();
+                                job.updatedAt = Date.now();
+                                redis.setJobStatus(job.id, 'FAILED', {
+                                    error: staleReason,
+                                    completedAt: Date.now()
+                                }).catch(() => {});
+                            }
+                        }
+
+                        // 2. Filtra os jobs para exibir apenas os ativos ou os finalizados recentemente (últimas 12 horas)
+                        const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+                        const activeJobs = jobs.filter(job => {
+                            if (job.status === 'PENDING' || job.status === 'PROCESSING') {
+                                return true; // Sempre exibe tarefas ativas
+                            }
+                            const lastActive = Math.max(job.createdAt || 0, job.updatedAt || 0, job.completedAt || 0);
+                            return lastActive > twelveHoursAgo;
+                        });
+
                         let pending = 0, processing = 0, completed = 0, failed = 0;
                         let totalProcessingTime = 0;
 
                         const processingJobs: any[] = [];
                         const lastJobs: any[] = []; // Last 5 completed or failed jobs
 
-                        jobs.forEach((job: any) => {
+                        activeJobs.forEach((job: any) => {
                             if (job.status === 'PENDING') pending++;
                             else if (job.status === 'PROCESSING') {
                                 processing++;

@@ -196,11 +196,13 @@ export class DetectionService {
         transcript: TranscriptSegment[],
         videoDuration: number,
         config: DetectionConfig,
+        onProgress?: (percent: number) => void,
     ): Promise<DetectionResult> {
         const { clips, meta } = await this.buildAiClips(
             transcript,
             videoDuration,
             config,
+            onProgress,
         );
 
         return { clips: clips.slice(0, config.targetClips), meta };
@@ -210,7 +212,9 @@ export class DetectionService {
         transcript: TranscriptSegment[],
         videoDuration: number,
         config: DetectionConfig,
+        onProgress?: (percent: number) => void,
     ): Promise<DetectionResult> {
+        onProgress?.(10);
         logger.debug(
             `[Detection] Config — minDuration: ${config.minDuration}s, maxDuration: ${config.maxDuration}s, targetClips: ${config.targetClips}`,
         );
@@ -222,6 +226,7 @@ export class DetectionService {
             logger.warn(
                 "[Detection] Nenhuma estratégia de scoring configurada (OPEN_ROUTE não definido?).",
             );
+            onProgress?.(100);
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
@@ -236,9 +241,11 @@ export class DetectionService {
         );
 
         if (candidates.length === 0) {
+            onProgress?.(100);
             return { clips: [], meta: { windowsAnalyzed: 0 } };
         }
 
+        onProgress?.(40);
         logger.debug("[Detection] Etapa 2: Ranking pela IA");
 
         const allScored: ScoredSegment[] = [];
@@ -265,6 +272,7 @@ export class DetectionService {
                 allScored.push(...scored);
             }
 
+            onProgress?.(90);
             logger.debug(
                 `[Detection] Total de segmentos brutos da IA: ${allScored.length}`,
             );
@@ -330,8 +338,10 @@ export class DetectionService {
                 };
             });
 
+            onProgress?.(100);
             return { clips, meta: { windowsAnalyzed } };
         } catch (error) {
+            onProgress?.(100);
             if (
                 typeof error === "object" &&
                 error !== null &&

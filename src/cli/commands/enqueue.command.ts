@@ -16,8 +16,8 @@ export function registerEnqueueCommand(program: Command): void {
             const rabbitUrl = process.env.RABBITMQ_URL || "amqp://localhost:5672";
             const queueName = process.env.QUEUE_NAME || "tikclipper_tasks";
 
-            if (!["download", "cut"].includes(type)) {
-                console.error(chalk.red(`❌ Tipo de tarefa inválido: ${type}. Use 'download' ou 'cut'.`));
+            if (!["download", "cut", "render"].includes(type)) {
+                console.error(chalk.red(`❌ Tipo de tarefa inválido: ${type}. Use 'download', 'cut' ou 'render'.`));
                 process.exit(1);
             }
 

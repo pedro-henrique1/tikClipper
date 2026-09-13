@@ -44,8 +44,24 @@ export class RedisService {
 
     async getJobStatus(jobId: string): Promise<any | null> {
         const data = await this.client.get(`job:${jobId}`);
-        if (!data) return null;
-        return JSON.parse(data);
+        if (data) {
+            const parsed = JSON.parse(data);
+            parsed.id = jobId;
+            return parsed;
+        }
+
+        // Se não encontrar o ID exato, tenta buscar pelo ID curto (prefixo)
+        const keys = await this.client.keys(`job:${jobId}*`);
+        if (keys.length > 0) {
+            const firstData = await this.client.get(keys[0]);
+            if (firstData) {
+                const parsed = JSON.parse(firstData);
+                parsed.id = keys[0].replace('job:', '');
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     async getAllJobs(): Promise<any[]> {

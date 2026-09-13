@@ -60,7 +60,7 @@ export class Pipeline {
     async run(
         inputPath: string,
         options?: Partial<PipelineConfig>,
-        onExportProgress?: ClipProgressCallback,
+        onProgress?: (stage: "transcribe" | "detect" | "render", percent: number) => void,
     ): Promise<PipelineResult> {
         const startedAt = Date.now();
 
@@ -77,13 +77,20 @@ export class Pipeline {
             ...options,
         };
 
+        const { duration } = await this.video.getMetadata(inputPath);
+
+        onProgress?.("transcribe", 0);
         const transcript = await this.transcription.transcribe(
             inputPath,
             config.karaoke,
+            (currentSeconds) => {
+                const percent = Math.min(99, Math.round((currentSeconds / duration) * 100));
+                onProgress?.("transcribe", percent);
+            },
         );
+        onProgress?.("transcribe", 100);
 
-        const { duration } = await this.video.getMetadata(inputPath);
-
+        onProgress?.("detect", 0);
         const { clips } = await this.detection.detectClips(
             transcript,
             duration,
@@ -92,7 +99,11 @@ export class Pipeline {
                 maxDuration: config.maxClipDuration,
                 targetClips: config.targetClips,
             },
+            (percent) => {
+                onProgress?.("detect", percent);
+            },
         );
+        onProgress?.("detect", 100);
 
         if (clips.length === 0) {
             throw new Error("No clips detected. Check the input video.");
@@ -114,13 +125,18 @@ export class Pipeline {
         const clipsJsonPath = path.join(config.outputDir, "clips.json");
         await writeFile(clipsJsonPath, JSON.stringify(clips, null, 2), "utf-8");
 
+        onProgress?.("render", 0);
         const outputPaths = await this.export.exportClips(
             inputPath,
             clips,
             transcript,
             config,
-            onExportProgress,
+            (clipIndex, percent) => {
+                const overallPercent = Math.min(100, Math.round(((clipIndex * 100) + percent) / clips.length));
+                onProgress?.("render", overallPercent);
+            },
         );
+        onProgress?.("render", 100);
 
         if (config.upload && config.uploadConfig) {
             for (const clipPath of outputPaths) {
@@ -155,5 +171,57 @@ export class Pipeline {
                 elapsedMs: Date.now() - startedAt,
             },
         };
+    }
+
+    async render(
+        inputPath: string,
+        clips: Clip[],
+        karaoke: boolean,
+        onProgress?: (stage: "transcribe" | "render", percent: number) => void,
+    ): Promise<string[]> {
+        const absolutePath = path.resolve(process.cwd(), inputPath);
+
+        let transcript: TranscriptSegment[] = [];
+        if (karaoke) {
+            const { duration } = await this.video.getMetadata(absolutePath);
+            onProgress?.("transcribe", 0);
+            transcript = await this.transcription.transcribe(
+                absolutePath,
+                true,
+                (currentSeconds) => {
+                    const percent = Math.min(99, Math.round((currentSeconds / duration) * 100));
+                    onProgress?.("transcribe", percent);
+                },
+            );
+            onProgress?.("transcribe", 100);
+        }
+
+        const rawVideoName = path.basename(absolutePath, path.extname(absolutePath));
+        const safeVideoName = rawVideoName.length > 40 ? rawVideoName.slice(0, 40) : rawVideoName;
+        const outputDir = path.resolve(OUTPUT_DIR, safeVideoName);
+
+        const config: PipelineConfig = {
+            inputPath: absolutePath,
+            outputDir,
+            minClipDuration: DEFAULT_CLIP_CONFIG.minDuration,
+            maxClipDuration: DEFAULT_CLIP_CONFIG.maxDuration,
+            targetClips: clips.length,
+            exportConfig: DEFAULT_EXPORT_CONFIG,
+        };
+
+        onProgress?.("render", 0);
+        const outputPaths = await this.export.exportClips(
+            absolutePath,
+            clips,
+            transcript,
+            config,
+            (clipIndex, percent) => {
+                const overallPercent = Math.min(100, Math.round(((clipIndex * 100) + percent) / clips.length));
+                onProgress?.("render", overallPercent);
+            },
+        );
+        onProgress?.("render", 100);
+
+        return outputPaths;
     }
 }

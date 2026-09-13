@@ -10,9 +10,7 @@ export class RabbitMQService {
     async connect(): Promise<void> {
         try {
             if (!this.connection) {
-                logger.info({ url: this.url }, 'Connecting to RabbitMQ...');
                 this.connection = await amqplib.connect(this.url);
-                logger.info('Successfully connected to RabbitMQ');
 
                 this.connection.on('error', (err) => {
                     logger.error({ err }, 'RabbitMQ connection error');
@@ -75,7 +73,6 @@ export class RabbitMQService {
         try {
             await this.channel!.assertQueue(queue, { durable: true });
 
-            // Prefetch 1 message at a time
             this.channel!.prefetch(1);
 
             logger.info({ queue }, 'Started consuming messages');

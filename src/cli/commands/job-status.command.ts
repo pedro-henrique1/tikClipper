@@ -31,6 +31,19 @@ export function registerJobStatusCommand(program: Command): void {
                 }
 
                 console.log(`   Status: ${statusColor(chalk.bold(status.status))}`);
+
+                if (status.type === "cut" || status.transcribeProgress !== undefined || status.detectProgress !== undefined || status.renderProgress !== undefined) {
+                    const transcribeProgress = status.transcribeProgress ?? (status.status === "COMPLETED" ? 100 : 0);
+                    const detectProgress = status.detectProgress ?? (status.status === "COMPLETED" ? 100 : 0);
+                    const renderProgress = status.renderProgress ?? (status.status === "COMPLETED" ? 100 : 0);
+
+                    console.log("");
+                    console.log(`   🎧 Transcribing... ${chalk.bold(transcribeProgress + "%")}`);
+                    console.log(`   🧠 Detecting clips... ${chalk.bold(detectProgress + "%")}`);
+                    console.log(`   🎬 Rendering... ${chalk.bold(renderProgress + "%")}`);
+                }
+
+                console.log("");
                 console.log(`   Atualizado em: ${chalk.gray(new Date(status.updatedAt).toLocaleString())}`);
                 
                 if (status.type) console.log(`   Tipo: ${chalk.gray(status.type)}`);
