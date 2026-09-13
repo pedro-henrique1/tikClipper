@@ -1,0 +1,86 @@
+services:
+  worker:
+    build: .
+    command: npm run worker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - output:/app/output
+      - inputs:/app/inputs
+      - ../whisper.cpp:/whisper.cpp
+      - ./videos:/app/videos
+    env_file: .env
+    environment:
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - REDIS_URL=redis://redis:6379
+      - LD_LIBRARY_PATH=/whisper.cpp/build/src:/whisper.cpp/build/ggml/src
+    restart: unless-stopped
+    # scale horizontalmente com: docker compose up --scale worker=3
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 4G
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --save 60 1 --loglevel warning
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
+
+volumes:
+  output:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./output
+  inputs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./inputs
+  models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./models
+  videos:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./videos
+  redis_data:        
+  rabbitmq_data:     
